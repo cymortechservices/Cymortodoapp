@@ -1,0 +1,60 @@
+name: Extract project zip
+
+on:
+  push:
+    paths:
+      - "*.zip"          # any zip committed to the repo root
+  workflow_dispatch:
+    inputs:
+      zip_file:
+        description: "Zip file to extract (repo root)"
+        default: "CYMOR-TO-DO-V1.0-final.zip"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick the zip file
+        id: pick
+        run: |
+          if [ -n "${{ github.event.inputs.zip_file }}" ]; then
+            ZIP="${{ github.event.inputs.zip_file }}"
+          else
+            ZIP="$(ls -1 *.zip 2>/dev/null | head -n 1)"
+          fi
+          [ -f "$ZIP" ] || { echo "No zip found"; exit 1; }
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Extract into a temp folder
+        run: |
+          rm -rf "$RUNNER_TEMP/unzipped"
+          mkdir -p "$RUNNER_TEMP/unzipped"
+          unzip -q "${{ steps.pick.outputs.zip }}" -d "$RUNNER_TEMP/unzipped"
+
+      - name: Copy into repo root (flatten single top-level folder)
+        run: |
+          SRC="$RUNNER_TEMP/unzipped"
+          # The zip contains one top-level folder (cymor-to-do/). Use its contents
+          # so backend/ and frontend/ end up at the repo root, as render.yaml expects.
+          if [ "$(ls -1A "$SRC" | wc -l)" -eq 1 ] && [ -d "$SRC/$(ls -1A "$SRC")" ]; then
+            SRC="$SRC/$(ls -1A "$SRC")"
+          fi
+          rsync -a --exclude='.git' "$SRC"/ ./
+          rm -f "${{ steps.pick.outputs.zip }}"
+
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing to commit"; exit 0
+          fi
+          git commit -m "chore: extract ${{ steps.pick.outputs.zip }}"
+          git push
