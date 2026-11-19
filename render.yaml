@@ -1,0 +1,35 @@
+# Render Blueprint. The WORKER must be an always-on instance: a sleeping free web service cannot send scheduled pushes.
+envVarGroups:
+  - name: cymor-todo-shared
+    envVars:
+      - { key: NODE_ENV, value: production }
+      - { key: MONGODB_URI, sync: false }
+      - { key: JWT_ACCESS_SECRET, generateValue: true }
+      - { key: JWT_REFRESH_SECRET, generateValue: true }
+      - { key: VAPID_PUBLIC_KEY, sync: false }
+      - { key: VAPID_PRIVATE_KEY, sync: false }
+      - { key: VAPID_SUBJECT, sync: false }
+      - { key: FRONTEND_URL, sync: false }   # e.g. https://your-app.vercel.app (comma-separate several origins)
+      - { key: BACKEND_URL, sync: false }    # the API service's public URL
+      - { key: SMTP_URL, sync: false }       # needed for real verification / reset emails
+      - { key: MAIL_FROM, sync: false }
+      - { key: DEFAULT_TIMEZONE, value: Africa/Nairobi }
+services:
+  - type: web
+    name: cymor-todo-api
+    runtime: node
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: npm run start
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: cymor-todo-shared
+  - type: worker
+    name: cymor-todo-worker
+    runtime: node
+    rootDir: backend
+    plan: starter            # paid, always-on
+    buildCommand: npm ci
+    startCommand: npm run start:worker
+    envVars:
+      - fromGroup: cymor-todo-shared

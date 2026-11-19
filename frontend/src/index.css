@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --c-bg: 10 11 20; --c-surface: 17 19 34; --c-raised: 26 29 50; --c-line: 44 48 78;
+  --c-fg: 236 238 250; --c-dim: 148 154 186;
+  --c-accent: 124 92 255; --c-accent2: 34 211 238;
+  --c-good: 52 211 153; --c-warn: 251 191 36; --c-bad: 248 113 113;
+}
+:root.light {
+  --c-bg: 245 246 252; --c-surface: 255 255 255; --c-raised: 238 240 250; --c-line: 214 218 238;
+  --c-fg: 20 22 40; --c-dim: 96 102 136;
+  --c-accent: 99 66 240; --c-accent2: 8 145 178;
+  --c-good: 5 150 105; --c-warn: 180 120 0; --c-bad: 220 38 38;
+}
+html, body, #root { height: 100%; }
+body {
+  @apply bg-ink-950 text-fg font-sans antialiased;
+  background-image: radial-gradient(1200px 600px at 80% -10%, rgb(var(--c-accent) / 0.14), transparent 60%), radial-gradient(900px 500px at -10% 110%, rgb(var(--c-accent2) / 0.08), transparent 60%);
+  background-attachment: fixed;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+h1, h2, h3 { @apply font-display tracking-tight; }
+.card { @apply rounded-2xl border border-ink-700/70 bg-ink-900/80 backdrop-blur; }
+.btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent; }
+.btn-primary { @apply btn text-white; background: linear-gradient(135deg, rgb(var(--c-accent)), rgb(var(--c-accent2))); box-shadow: 0 6px 24px -8px rgb(var(--c-accent) / 0.6); }
+.btn-ghost { @apply btn border border-ink-700 bg-ink-800/60 hover:bg-ink-800; }
+.btn-danger { @apply btn bg-bad/15 text-bad border border-bad/40 hover:bg-bad/25; }
+.input { @apply w-full rounded-xl border border-ink-700 bg-ink-950/60 px-3.5 py-2.5 text-sm outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/30; }
+.label { @apply mb-1.5 block text-xs font-medium uppercase tracking-wider text-fg-dim; }
+.chip { @apply inline-flex items-center rounded-full border border-ink-700 px-2.5 py-0.5 text-xs text-fg-dim; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; } }
+.reduce-motion *, .reduce-motion *::before, .reduce-motion *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise .45s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes pulseRing { 0% { box-shadow: 0 0 0 0 rgb(var(--c-accent) / .5); } 100% { box-shadow: 0 0 0 18px rgb(var(--c-accent) / 0); } }
+.live { animation: pulseRing 1.8s infinite; }
