@@ -27,6 +27,28 @@ export function makeJobStore(): MongoJobStore {
   return new MongoJobStore(db.collection(JOBS) as never, db.collection(LOGS) as never, db.collection(CLAIMS) as never, () => randomUUID());
 }
 
+type IdxModel = { createIndexes(): Promise<unknown>; collection: { name: string; dropIndex(name: string): Promise<unknown> } };
+
+/**
+ * createIndexes() that survives indexes left by an older version with the same name but different options
+ * (e.g. users.email became sparse in V1.1; Atlas answers IndexKeySpecsConflict / IndexOptionsConflict).
+ * Only the conflicting index is dropped and rebuilt; documents are untouched.
+ */
+export async function createIndexesResilient(mdl: IdxModel, skip: (e: unknown) => boolean = () => false): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try { await mdl.createIndexes(); return; }
+    catch (e) {
+      if (skip(e)) return;
+      const msg = String((e as Error)?.message ?? e);
+      const conflict = /IndexKeySpecsConflict|IndexOptionsConflict|existing index|same name as the requested index/i.test(msg) || [85, 86].includes((e as { code?: number }).code ?? 0);
+      const name = /existing index:.*?name: "([^"]+)"/.exec(msg)?.[1] ?? /name: "([^"]+)"/.exec(msg)?.[1];
+      if (!conflict || !name || attempt >= 8) throw e;
+      console.warn(`Rebuilding index ${mdl.collection.name}.${name} (options changed)`);
+      await mdl.collection.dropIndex(name);
+    }
+  }
+}
+
 /**
  * Create only the indexes that are missing, so the API and the worker can both call this at startup
  * (and re-run on every deploy) without re-issuing createIndex for indexes that already exist.
@@ -36,20 +58,7 @@ export async function ensureIndexes(opts: { skipTtl?: boolean } = {}): Promise<v
   for (const mdl of Object.values(mongoose.models)) {
     const { toCreate } = await mdl.diffIndexes().catch(() => ({ toCreate: [{}] }));
     if (!toCreate.length) continue;
-    for (let attempt = 0; ; attempt++) {
-      try { await mdl.createIndexes(); break; }
-      catch (e) {
-        if (skip(e)) break;
-        // An index from an older version has the same name but different options (e.g. users.email became sparse in V1.1).
-        // Drop just that index and build it again; data is untouched.
-        const code = (e as { code?: number }).code;
-        const name = /existing index:.*?name: "([^"]+)"/.exec(String((e as Error).message))?.[1];
-        if ((code === 85 || code === 86) && name && attempt < 6) {
-          console.warn(`Rebuilding index ${mdl.collection.name}.${name} (options changed)`);
-          await mdl.collection.dropIndex(name);
-        } else throw e;
-      }
-    }
+    await createIndexesResilient(mdl, skip);
   }
   const db = mongoose.connection.db!;
   const missing = async (col: string, wanted: { name: string }[]) => {
@@ -65,4 +74,4 @@ export async function ensureIndexes(opts: { skipTtl?: boolean } = {}): Promise<v
     const cm = await missing(CLAIMS, [{ name: 'claims_ttl' }]);
     if (cm.length) await db.collection(CLAIMS).createIndexes([{ key: { at: 1 }, name: 'claims_ttl', expireAfterSeconds: 7 * 24 * 3600 }] as never);
   }
-}
+                         }
