@@ -330,3 +330,148 @@ test('habits, goals, focus, reflections, settings', T, async () => {
   assert.equal(st.body.settings.theme, 'light');
   assert.equal((await request(app).patch('/api/settings').set(u.auth).send({ theme: 'neon' })).status, 400);
 });
+
+async function guest(name = 'Smiley', timezone = 'Africa/Nairobi') {
+  const r = await request(app).post('/api/auth/guest').send({ name, timezone });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  return { ...r.body, auth: { Authorization: `Bearer ${r.body.accessToken}` } };
+}
+
+test('guest accounts: username only, recovery code restores, regenerate invalidates, optional upgrade', T, async () => {
+  const g = await guest('Legend');
+  assert.equal(g.user.guest, true);
+  assert.equal(g.user.email, null);
+  assert.equal(g.user.hasPassword, false);
+  assert.match(g.recoveryCode, /^[A-Z2-9]{5}(-[A-Z2-9]{5}){3}$/);
+  assert.equal((await request(app).post('/api/auth/guest').send({ name: 'x' })).status, 400, 'name too short');
+  assert.equal((await request(app).post('/api/auth/guest').send({ name: 'Legend' })).status, 201, 'usernames are NOT identity, duplicates allowed');
+  assert.equal((await request(app).get('/api/auth/me').set(g.auth)).body.user.name, 'Legend');
+
+  // the two same-name guests do not see each other's data
+  const other = await guest('Legend');
+  await request(app).post('/api/habits').set(g.auth).send({ name: 'Mine' });
+  assert.equal((await request(app).get('/api/habits').set(other.auth)).body.habits.length, 0);
+
+  // restore on a "new device" with a sloppy-typed code
+  const sloppy = g.recoveryCode.toLowerCase().replace(/-/g, ' ');
+  const rec = await request(app).post('/api/auth/recover').send({ recoveryCode: sloppy });
+  assert.equal(rec.status, 200);
+  assert.equal(rec.body.user.id, g.user.id);
+  assert.equal((await request(app).get('/api/habits').set({ Authorization: `Bearer ${rec.body.accessToken}` })).body.habits[0].name, 'Mine');
+  assert.equal((await request(app).post('/api/auth/recover').send({ recoveryCode: 'AAAAA-BBBBB-CCCCC-DDDDD' })).status, 401);
+
+  // regenerate: old code dies, new one works
+  const regen = await request(app).post('/api/auth/recovery-code').set(g.auth).send({});
+  assert.equal(regen.status, 200);
+  assert.notEqual(regen.body.recoveryCode, g.recoveryCode);
+  assert.equal((await request(app).post('/api/auth/recover').send({ recoveryCode: g.recoveryCode })).status, 401);
+  assert.equal((await request(app).post('/api/auth/recover').send({ recoveryCode: regen.body.recoveryCode })).status, 200);
+
+  // guests have no password to change; upgrade adds email+password and keeps the data
+  assert.equal((await request(app).post('/api/auth/change-password').set(g.auth).send({ currentPassword: 'x', newPassword: 'whatever 123' })).status, 400);
+  const email = `up${randomUUID().slice(0, 6)}@example.com`;
+  const up = await request(app).post('/api/auth/upgrade').set(g.auth).send({ email, password: 'upgrade pass 77' });
+  assert.equal(up.status, 200, JSON.stringify(up.body));
+  assert.equal(up.body.user.hasPassword, true);
+  assert.equal((await request(app).post('/api/auth/upgrade').set(g.auth).send({ email: 'again@example.com', password: 'upgrade pass 77' })).status, 409);
+  assert.equal((await request(app).post('/api/auth/upgrade').set(other.auth).send({ email, password: 'upgrade pass 77' })).status, 409, 'email already taken');
+  const login = await request(app).post('/api/auth/login').send({ email, password: 'upgrade pass 77' });
+  assert.equal(login.status, 200);
+  assert.equal(login.body.user.id, g.user.id);
+
+  // deleting a guest needs the exact username (no password exists)
+  assert.equal((await request(app).delete('/api/auth/me').set(other.auth).send({})).status, 400);
+  assert.equal((await request(app).delete('/api/auth/me').set(other.auth).send({ confirmName: 'nope' })).status, 400);
+  assert.equal((await request(app).delete('/api/auth/me').set(other.auth).send({ confirmName: 'Legend' })).status, 200);
+  assert.equal((await request(app).get('/api/auth/me').set(g.auth)).status, 200, 'the other same-name guest is untouched');
+});
+
+test('native devices: register/sync, upcoming schedule filtering, server pushes only what the phone lacks', T, async () => {
+  const u = await guest('Phone User');
+  const token = 'fcm-token-' + 'x'.repeat(40);
+  const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+  const mk = async (title: string, d: number, s: string, e: string) => (await request(app).post('/api/activities').set(u.auth).send({ title, date: day(d), start: s, end: e })).body.activity;
+  const a1 = await mk('Alpha', 2, '09:00', '10:00');
+  const a2 = await mk('Beta', 3, '09:00', '10:00');
+  assert.equal((await request(app).post('/api/notifications/native/register').set(u.auth).send({ token: 'short' })).status, 400);
+
+  // upcoming: 4 jobs per activity, nearest first, cancelled activity's jobs excluded
+  let up = (await request(app).get('/api/notifications/upcoming').set(u.auth)).body;
+  assert.equal(up.jobs.length, 8);
+  assert.ok(up.jobs.every((j: any, i: number, arr: any[]) => i === 0 || arr[i - 1].fireAt <= j.fireAt));
+  await request(app).post(`/api/activities/${a2.id}/cancel`).set(u.auth).send({});
+  up = (await request(app).get('/api/notifications/upcoming').set(u.auth)).body;
+  assert.equal(up.jobs.length, 4, 'cancelled activity not scheduled on the phone');
+  const capped = (await request(app).get('/api/notifications/upcoming?limit=2').set(u.auth)).body;
+  assert.equal(capped.jobs.length, 2);
+  assert.equal(capped.horizon, capped.jobs[1].fireAt, 'horizon = last included job when the list was cut');
+
+  // register the phone as having scheduled everything up to horizon
+  const horizon = up.horizon;
+  const reg = await request(app).post('/api/notifications/native/register').set(u.auth).send({ token, platform: 'android', localUntil: horizon });
+  assert.equal(reg.status, 201);
+  await new Promise((r) => setTimeout(r, 15));
+  const a3 = await mk('Gamma', 2, '14:00', '15:00'); // planned AFTER the phone synced (e.g. from the web app)
+
+  const sent: any[] = [];
+  const { NativePushProvider } = await import('../src/services/push.js');
+  const { CompositePushProvider } = await import('../src/services/push.js');
+  const provider = new CompositePushProvider(undefined, new NativePushProvider(async (m) => { sent.push(m); }));
+  const store = makeJobStore();
+  const deps = { store, push: provider, subs: new MongoSubscriptionStore(), precondition: mongoPrecondition, workerId: 'wn' };
+  const alphaJobs = await jobsCol().find({ sourceId: a1.id }).sort({ fireAt: 1 }).toArray();
+  const gammaJobs = await jobsCol().find({ sourceId: a3.id }).sort({ fireAt: 1 }).toArray();
+  const after = Math.max(alphaJobs[3].fireAt, gammaJobs[3].fireAt) + 1000;
+  for (const t of [...alphaJobs, ...gammaJobs].map((j: any) => j.fireAt).sort((x: number, y: number) => x - y)) await processBatch(deps, t + 1000); // each job at its own fire time
+  const pushed = new Set(sent.map((m) => m.data.jobId));
+  assert.ok(alphaJobs.every((j: any) => !pushed.has(j.id)), 'Alpha was scheduled locally on the phone: server must NOT push it again (no duplicates)');
+  assert.ok(gammaJobs.filter((j: any) => j.kind !== 'pre_start').every((j: any) => pushed.has(j.id)), 'Gamma was created after the phone synced: server pushes it');
+  assert.ok(sent[0].data.actionToken && sent[0].data.url !== undefined);
+
+  // after the phone syncs again, new jobs are its own
+  const sync = await request(app).post('/api/notifications/native/sync').set(u.auth).send({ token, localUntil: after + 1 });
+  assert.equal(sync.status, 200);
+  assert.equal((await request(app).post('/api/notifications/native/sync').set(u.auth).send({ token: 'nope'.repeat(10), localUntil: 1 })).status, 404);
+  const dg = await request(app).get('/api/notifications/diagnostics').set(u.auth);
+  assert.equal(dg.body.nativeDevices, 1);
+  assert.equal(dg.body.fcmConfigured, false, 'reported honestly: no Firebase key in tests');
+
+  // checked-out activity: overdue not scheduled locally any more
+  const past = (await request(app).post('/api/activities').set(u.auth).send({ title: 'Delta', date: day(4), start: '09:00', end: '10:00' })).body.activity;
+  const dJobs = await jobsCol().find({ sourceId: past.id }).sort({ fireAt: 1 }).toArray();
+  await mongoose.connection.db.collection('activities').updateOne({ _id: new mongoose.Types.ObjectId(past.id) }, { $set: { checkInAt: dJobs[1].fireAt, checkOutAt: dJobs[1].fireAt + 60_000 } });
+  const up2 = (await request(app).get('/api/notifications/upcoming?limit=64').set(u.auth)).body;
+  assert.ok(!up2.jobs.some((j: any) => j.sourceId === past.id && j.kind === 'overdue'), 'overdue skipped after check-out');
+  assert.ok(up2.jobs.some((j: any) => j.sourceId === past.id && j.kind === 'end'));
+});
+
+test('native push: dead FCM token deactivates device; missing Firebase config fails honestly', T, async () => {
+  const u = await guest('Dead Token');
+  const token = 'dead-token-' + 'y'.repeat(40);
+  await request(app).post('/api/notifications/native/register').set(u.auth).send({ token, platform: 'android', localUntil: 0 });
+  const now = Date.now();
+  const store = makeJobStore();
+  const mkJob = (k: string) => store.insert({ userId: u.user.id, kind: 'reminder', sourceId: `test:${u.user.id}`, fireAt: now, expiresAt: now + 300_000, idempotencyKey: k, title: 'T', body: 'b', url: '/' }, now);
+  const { NativePushProvider, CompositePushProvider } = await import('../src/services/push.js');
+  await mkJob('dead1');
+  const dead = Object.assign(new Error('gone'), { code: 'messaging/registration-token-not-registered' });
+  await processBatch({ store, push: new CompositePushProvider(undefined, new NativePushProvider(async () => { throw dead; })), subs: new MongoSubscriptionStore(), precondition: mongoPrecondition, workerId: 'wd' }, now + 10);
+  const subs = (await request(app).get('/api/notifications/subscriptions').set(u.auth)).body.subscriptions;
+  assert.equal(subs[0].active, false, 'unregistered FCM token deactivates that device');
+  assert.equal(subs[0].platform, 'android');
+});
+
+test('public share: calendar download works and shows colours; revoked => 404', T, async () => {
+  const u = await guest('Sharer');
+  const day = '2026-06-02';
+  await request(app).post('/api/activities').set(u.auth).send({ title: 'Lecture', color: '#d4af37', date: day, start: '09:00', end: '10:30' });
+  const sh = await request(app).post('/api/shares').set(u.auth).send({ from: day, to: day, title: 'Mine' });
+  const pub = await request(app).get(`/api/public/shared/${sh.body.token}`);
+  assert.equal(pub.body.activities[0].color, '#d4af37');
+  const ics = await request(app).get(`/api/public/shared/${sh.body.token}/calendar.ics`);
+  assert.equal(ics.status, 200);
+  assert.match(ics.text, /SUMMARY:Lecture/);
+  assert.equal((await request(app).get('/api/public/shared/bogus/calendar.ics')).status, 404);
+  await request(app).delete(`/api/shares/${sh.body.id}`).set(u.auth);
+  assert.equal((await request(app).get(`/api/public/shared/${sh.body.token}/calendar.ics`)).status, 404);
+});

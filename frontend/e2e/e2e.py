@@ -3,7 +3,7 @@ import re, time, json, datetime
 from playwright.sync_api import sync_playwright, expect
 
 BASE='http://localhost:4173'
-EMAIL='e2e'+str(int(time.time()))+'@example.com'
+CODE=''
 errors=[]
 def run():
     with sync_playwright() as pw:
@@ -16,29 +16,33 @@ def run():
         # intro shows on first visit
         expect(p.get_by_role('dialog', name='Welcome')).to_be_visible()
         p.wait_for_timeout(1800); p.screenshot(path='/home/claude/scratch/shots/01-intro.png')
-        p.get_by_role('dialog', name='Welcome').click()
-        expect(p.get_by_text('Welcome back')).to_be_visible(timeout=5000)
-        p.screenshot(path='/home/claude/scratch/shots/02-login.png')
-        # register
-        p.get_by_role('link', name='Create account').click()
-        p.get_by_label('Name', exact=True).fill('Legendary Smiley')
-        p.get_by_label('Email').fill(EMAIL)
-        p.get_by_label('Password').fill('e2e pass 12345')
-        p.get_by_role('button', name='Create account').click()
+        p.get_by_role('dialog', name='Welcome to CYMOR TO-DO').click()
+        expect(p.get_by_text('call you?')).to_be_visible(timeout=5000)
+        p.screenshot(path='/home/claude/scratch/shots/02-welcome.png')
+        # username-only start (no email, no password)
+        p.get_by_label('Your username').fill('Legendary Smiley')
+        p.get_by_role('button', name='Begin').click()
+        expect(p.get_by_text('Your recovery code')).to_be_visible(timeout=8000)
+        global CODE
+        CODE=p.get_by_label('Recovery code').inner_text().strip()
+        print('recovery code shown:', CODE)
+        p.screenshot(path='/home/claude/scratch/shots/02b-recovery.png')
+        expect(p.get_by_role('button', name='Enter CYMOR')).to_be_disabled()
+        p.get_by_text('I stored this code').click()
+        p.get_by_role('button', name='Enter CYMOR').click()
         expect(p.get_by_text('Good ', exact=False).first).to_be_visible(timeout=10000)
-        print('registered+dashboard OK, url', p.url)
+        print('guest start + dashboard OK, url', p.url)
         # create an activity starting 1 min ago, ending in 59 min (so it is "now") via planner UI
         now=datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=3)))
         s=(now-datetime.timedelta(minutes=1)).strftime('%H:%M'); e=(now+datetime.timedelta(minutes=59)).strftime('%H:%M')
-        p.get_by_role('link', name='+ Plan activity').click()
-        p.get_by_role('button', name='+ New').click()
+        p.get_by_role('link', name='New activity').first.click()
         p.get_by_role('textbox', name='Activity').fill('Study Mathematics')
         p.locator('input[type=time]').nth(0).fill(s); p.locator('input[type=time]').nth(1).fill(e)
         p.screenshot(path='/home/claude/scratch/shots/03-form.png')
         p.get_by_role('button', name='Add activity').click()
         expect(p.get_by_text('Study Mathematics').first).to_be_visible(timeout=8000)
         # overlapping second activity -> overlap warning, nothing moved
-        p.get_by_role('button', name='+ New').click()
+        p.get_by_role('link', name='New activity').first.click()
         p.get_by_role('textbox', name='Activity').fill('Overlapper')
         p.locator('input[type=time]').nth(0).fill(s); p.locator('input[type=time]').nth(1).fill(e)
         p.get_by_role('button', name='Add activity').click()
@@ -98,7 +102,7 @@ def run():
         p.get_by_placeholder('New habit, e.g. Read 20 pages').fill('Read'); p.get_by_role('button', name='Add').click()
         expect(p.get_by_text('Read', exact=True).first).to_be_visible(timeout=8000)
         p.get_by_role('link', name='Settings').first.click()
-        expect(p.get_by_role('heading', name='Profile')).to_be_visible(timeout=8000)
+        expect(p.get_by_role('heading', name='Backup & recovery')).to_be_visible(timeout=8000)
         p.get_by_label('Theme').first if False else None
         p.screenshot(path='/home/claude/scratch/shots/12-settings.png', full_page=True)
         # service worker registered (prod build)
@@ -108,10 +112,15 @@ def run():
         # mobile view
         m=b.new_context(viewport={'width':390,'height':800}, device_scale_factor=2, timezone_id='Africa/Nairobi', is_mobile=True, has_touch=True)
         mp=m.new_page()
-        mp.goto(BASE+'/login'); mp.evaluate("localStorage.setItem('cymor.intro.v1','1')"); mp.reload()
-        mp.get_by_label('Email').fill(EMAIL); mp.get_by_label('Password').fill('e2e pass 12345'); mp.get_by_role('button', name='Sign in').click()
+        mp.goto(BASE+'/restore'); mp.evaluate("localStorage.setItem('cymor.intro.v2','1')"); mp.reload()
+        mp.get_by_label('Recovery code').fill(CODE); mp.get_by_role('button', name='Restore my account').click()
         expect(mp.get_by_text('Good ', exact=False).first).to_be_visible(timeout=10000)
+        print('restore with recovery code OK')
         mp.wait_for_timeout(600); mp.screenshot(path='/home/claude/scratch/shots/13-mobile-dashboard.png')
+        for nm,path in [('14-mobile-planner','/planner'),('15-mobile-alerts','/notifications'),('16-mobile-settings','/settings')]:
+            mp.get_by_role('link', name=path[1:].capitalize() if path!='/notifications' else 'Alerts').first.click() if False else mp.goto(BASE+path)
+            mp.wait_for_timeout(900); mp.screenshot(path=f'/home/claude/scratch/shots/{nm}.png')
+            print('overflow',nm, mp.evaluate('document.documentElement.scrollWidth > document.documentElement.clientWidth'))
         ov=mp.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth")
         print('mobile horizontal overflow:', ov)
         b.close()

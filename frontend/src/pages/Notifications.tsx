@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, errMsg } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useAsync } from '../lib/hooks';
+import { enableNative, isNative, nativeHealth, syncNative, type NativeHealth } from '../lib/native';
 import { disablePush, enablePush, pushState, type PushState } from '../lib/push';
 import { playSound } from '../lib/sound';
 import { hhmm, prettyDate, ymdOf } from '../lib/time';
@@ -30,13 +31,17 @@ export default function Notifications() {
   const [ps, setPs] = useState<PushState>('off'); const [busy, setBusy] = useState(false);
   const diag = useAsync(() => api<Diag>('/notifications/diagnostics'), []);
   const jobs = useAsync(() => api<{ jobs: Job[] }>('/notifications/jobs?limit=40'), []);
-  useEffect(() => { void pushState().then(setPs); }, []);
+  const native = isNative();
+  const [nh, setNh] = useState<NativeHealth | null>(null);
+  const refreshNative = async () => setNh(await nativeHealth());
+  useEffect(() => { if (native) void refreshNative(); else void pushState().then(setPs); }, [native]);
   useEffect(() => { if (diag.data && !diag.data.vapidConfigured && ps === 'off') setPs('not-configured'); }, [diag.data, ps]);
 
   const toggle = async () => {
     setBusy(true);
     try { if (ps === 'on') await disablePush(); else await enablePush(); setPs(await pushState()); void diag.reload(); } catch (e) { toast(errMsg(e), 'err'); setPs(await pushState()); } finally { setBusy(false); }
   };
+  const fixNative = async () => { setBusy(true); try { await enableNative(); await syncNative(); await refreshNative(); void diag.reload(); } catch (e) { toast(errMsg(e), 'err'); } finally { setBusy(false); } };
   const test = async () => { try { await api('/notifications/test', { method: 'POST', body: {} }); toast('Test queued. It arrives only if the worker is running and this device is subscribed.', 'info'); setTimeout(() => { void jobs.reload(); void diag.reload(); }, 8000); } catch (e) { toast(errMsg(e), 'err'); } };
   const snooze = async (j: Job) => { try { await api(`/notifications/jobs/${j.id}/snooze`, { method: 'POST', body: { minutes: 10 } }); toast('Snoozed 10 minutes', 'ok'); void jobs.reload(); } catch (e) { toast(errMsg(e), 'err'); } };
   const d = diag.data;
@@ -44,14 +49,33 @@ export default function Notifications() {
   return (
     <>
       <PageTitle title="Notifications" sub="What was sent, when, and whether it can be trusted." />
-      <Card>
+      {native && nh && (
+        <section className="card-gold mb-4 p-5">
+          <div className="flex items-start justify-between gap-3"><div><div className="font-display text-lg font-semibold">Phone alerts</div><p className="mt-0.5 text-sm text-fg-dim">Your phone rings reminders itself, even offline.</p></div>
+            <span className={`chip ${nh.permission === 'granted' && nh.pending >= 0 ? 'border-good/50 text-good' : 'border-warn/50 text-warn'}`}>{nh.permission === 'granted' ? 'Ready' : 'Needs attention'}</span></div>
+          <table className="tbl mt-3"><tbody>
+            {([
+              ['Notification permission', nh.permission === 'granted' ? 'Allowed' : nh.permission === 'denied' ? 'Blocked in Android settings' : 'Not asked yet', nh.permission === 'granted'],
+              ['Exact alarms', nh.exactAlarm === 'granted' ? 'Allowed' : nh.exactAlarm === 'denied' ? 'Off: reminders may arrive a few minutes late' : 'Unknown', nh.exactAlarm !== 'denied'],
+              ['Scheduled on this phone', `${nh.pending} reminder${nh.pending === 1 ? '' : 's'}`, true],
+              ['Next one', nh.nextFireAt ? `${prettyDate(ymdOf(nh.nextFireAt, tz))} ${hhmm(nh.nextFireAt, tz)}` : 'None scheduled', true],
+              ['Backup push (FCM)', nh.fcmToken ? 'Connected' : 'Not connected', nh.fcmToken],
+            ] as [string, string, boolean][]).map(([k, v, ok]) => <tr key={k}><td className="text-fg-dim">{k}</td><td className={`text-right ${ok ? '' : 'text-warn'}`}>{v}</td></tr>)}
+          </tbody></table>
+          {nh.lastError && <p className="mt-2 text-xs text-bad">Last sync problem: {nh.lastError}</p>}
+          <div className="mt-4 flex flex-wrap gap-2"><button className="btn-primary btn-sm" disabled={busy} onClick={fixNative}>{nh.permission === 'granted' ? 'Re-sync reminders' : 'Allow notifications'}</button></div>
+          <p className="mt-3 text-xs text-fg-dim">Tip: on some phones (Xiaomi, Oppo, Samsung) set CYMOR TO-DO battery use to “Unrestricted”, otherwise the system may delay alerts.</p>
+        </section>
+      )}
+
+      {!native && <Card>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><div className="font-medium">This device</div><p className="mt-0.5 max-w-md text-sm text-fg-dim">{PUSH_HELP[ps]}</p></div>
           <div className="flex gap-2">{(ps === 'on' || ps === 'off') && <button className={ps === 'on' ? 'btn-ghost' : 'btn-primary'} disabled={busy} onClick={toggle}>{ps === 'on' ? 'Turn off' : 'Enable push'}</button>}
             <button className="btn-ghost" onClick={() => playSound(settings?.sound, true)}>Play sound</button>
             {ps === 'on' && <button className="btn-ghost" onClick={test}>Send test</button>}</div>
         </div>
-      </Card>
+      </Card>}
 
       <Card className="mt-4">
         <h2 className="mb-3 text-lg font-semibold">System check</h2>

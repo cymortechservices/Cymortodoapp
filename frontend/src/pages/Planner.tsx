@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, download, errMsg } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { addDays, fmtDuration, hhmm, prettyDate, startOfWeek, ymdOf } from '../lib/time';
@@ -21,6 +22,8 @@ export default function Planner() {
   const [form, setForm] = useState<{ open: boolean; edit?: Activity }>({ open: false });
   const [imp, setImp] = useState(false);
   const [share, setShare] = useState<string | null>(null);
+  const [sp, setSp] = useSearchParams();
+  useEffect(() => { if (sp.get('new')) { setForm({ open: true }); setSp({}, { replace: true }); } }, [sp, setSp]);
 
   const byDay = (d: string) => (data?.activities ?? []).filter((a) => a.localDate === d);
   const conflictIds = new Set((data?.conflicts ?? []).flatMap((c) => [c.a, c.b]));
@@ -42,13 +45,13 @@ export default function Planner() {
 
   return (
     <>
-      <PageTitle title="Planner" sub={`Week of ${prettyDate(days[0]!)} · ${tz}`} right={<div className="flex gap-2"><button className="btn-ghost" onClick={() => setImp(true)}>Import</button><button className="btn-primary" onClick={() => setForm({ open: true })}>+ New</button></div>} />
+      <PageTitle title="Planner" sub={`Week of ${prettyDate(days[0]!)} · ${tz}`} right={<button className="btn-ghost btn-sm" onClick={() => setImp(true)}>Import</button>} />
 
       <div className="mb-5 flex items-center gap-2">
         <button aria-label="Previous week" className="btn-ghost !px-3" onClick={() => setSel(addDays(wk, -7))}>‹</button>
         <div className="grid flex-1 grid-cols-7 gap-1.5">
           {days.map((d) => (
-            <button key={d} aria-pressed={d === sel} onClick={() => setSel(d)} className={`rounded-xl border px-1 py-2 text-center text-xs transition ${d === sel ? 'border-accent bg-accent/15' : 'border-ink-700 hover:bg-ink-800/60'} ${d === today ? 'ring-1 ring-accent-2/60' : ''}`}>
+            <button key={d} aria-pressed={d === sel} onClick={() => setSel(d)} className={`rounded-xl border px-1 py-2 text-center text-xs transition ${d === sel ? 'border-accent bg-accent/15 text-accent' : 'border-ink-700 hover:bg-ink-800/60'} ${d === today ? 'ring-1 ring-accent-2/60' : ''}`}>
               <div className="text-fg-dim">{prettyDate(d).split(' ')[0]}</div><div className="font-display text-lg">{d.slice(8)}</div>
               <div className="mx-auto mt-0.5 h-1 w-1 rounded-full" style={{ background: byDay(d).length ? 'rgb(var(--c-accent))' : 'transparent' }} />
             </button>
@@ -61,20 +64,25 @@ export default function Planner() {
         <>
           <h2 className="mb-3 text-lg font-semibold">{prettyDate(sel)}{sel === today && <span className="chip ml-2">Today</span>}</h2>
           {byDay(sel).length === 0 ? <Empty title="Nothing planned" hint="Add an activity for this day." action={<button className="btn-primary" onClick={() => setForm({ open: true })}>+ New activity</button>} /> : (
-            <ol className="space-y-2.5">
-              {byDay(sel).map((a) => (
-                <li key={a.id}><Card className={`!p-4 ${a.cancelled ? 'opacity-60' : ''}`}>
-                  <div className="flex items-start gap-3">
-                    <div className="mt-1 h-10 w-1.5 shrink-0 rounded-full" style={{ background: a.color }} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2"><span className={`font-medium ${a.cancelled ? 'line-through' : ''}`}>{a.title}</span><StatusChip status={a.result.status} />{conflictIds.has(a.id) && <span className="chip border-warn/50 text-warn">⚠ overlap</span>}</div>
-                      <div className="mt-0.5 text-sm text-fg-dim">{hhmm(a.startUtc, tz)} – {hhmm(a.endUtc, tz)} · {fmtDuration(a.result.scheduledMinutes)} · {a.category}{a.location ? ` · ${a.location}` : ''}</div>
-                    </div>
-                    <div className="flex shrink-0 gap-1.5"><button className="btn-ghost !px-3 !py-1.5 text-xs" onClick={() => setForm({ open: true, edit: a })}>Edit</button><button className="btn-ghost !px-3 !py-1.5 text-xs" onClick={() => toggleCancel(a)}>{a.cancelled ? 'Restore' : 'Cancel'}</button><button aria-label={`Delete ${a.title}`} className="btn-danger !px-3 !py-1.5 text-xs" onClick={() => del(a)}>✕</button></div>
-                  </div>
-                </Card></li>
-              ))}
-            </ol>
+            <div className="card overflow-hidden !rounded-2xl">
+              <table className="tbl">
+                <thead><tr><th>Time</th><th>Activity</th><th className="hidden sm:table-cell">Length</th><th className="text-right">Manage</th></tr></thead>
+                <tbody>
+                  {byDay(sel).map((a) => (
+                    <tr key={a.id} className={a.cancelled ? 'opacity-55' : ''}>
+                      <td className="w-[5.2rem] whitespace-nowrap font-mono text-[13px] leading-snug">{hhmm(a.startUtc, tz)}<br /><span className="text-fg-dim">{hhmm(a.endUtc, tz)}</span></td>
+                      <td className="max-w-0">
+                        <div className="flex items-center gap-2.5"><span className="h-9 w-1 shrink-0 rounded-full" style={{ background: a.color }} />
+                          <div className="min-w-0"><div className={`font-medium ${a.cancelled ? 'line-through' : ''}`}>{a.title}</div>
+                            <div className="flex flex-wrap items-center gap-x-2 text-xs text-fg-dim"><span className="capitalize">{a.category}</span>{a.location && <span className="truncate">· {a.location}</span>}<StatusChip status={a.result.status} />{conflictIds.has(a.id) && <span className="text-warn">⚠ overlap</span>}</div></div></div>
+                      </td>
+                      <td className="hidden whitespace-nowrap text-fg-dim sm:table-cell">{fmtDuration(a.result.scheduledMinutes)}</td>
+                      <td className="whitespace-nowrap text-right"><div className="flex justify-end gap-1.5"><button className="btn-ghost btn-sm" onClick={() => setForm({ open: true, edit: a })}>Edit</button><button className="btn-ghost btn-sm hidden sm:inline-flex" onClick={() => toggleCancel(a)}>{a.cancelled ? 'Restore' : 'Cancel'}</button><button aria-label={`Delete ${a.title}`} className="btn-danger btn-sm hidden sm:inline-flex" onClick={() => del(a)}>✕</button></div></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           {(data?.conflicts.length ?? 0) > 0 && <p className="mt-4 text-sm text-warn">This week has {data!.conflicts.length} overlapping pair(s). CYMOR never moves your activities for you.</p>}
 
@@ -90,6 +98,7 @@ export default function Planner() {
 
       <Modal open={form.open} onClose={() => setForm({ open: false })} title={form.edit ? 'Edit activity' : 'New activity'}>
         <ActivityForm key={form.edit?.id ?? 'new'} initial={form.edit} date={sel} onSaved={saved} onCancel={() => setForm({ open: false })} />
+        {form.edit && <div className="mt-4 flex gap-2 border-t border-ink-700 pt-4"><button className="btn-ghost btn-sm flex-1" onClick={async () => { await toggleCancel(form.edit!); setForm({ open: false }); }}>{form.edit.cancelled ? 'Restore activity' : 'Cancel this activity'}</button><button className="btn-danger btn-sm flex-1" onClick={async () => { await del(form.edit!); setForm({ open: false }); }}>Delete</button></div>}
       </Modal>
       <ImportModal open={imp} onClose={() => setImp(false)} defaultDate={sel} onDone={(n) => { toast(`Imported ${n} activities`, 'ok'); void reload(); }} />
     </>

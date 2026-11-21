@@ -15,7 +15,8 @@ export function createApp(): Express {
   const app = express();
   app.set('trust proxy', 1);
   app.use(helmet());
-  const origins = config.FRONTEND_URL.split(',').map((s) => s.trim());
+  // Capacitor WebView origins (Android uses https://localhost, iOS capacitor://localhost) are always allowed.
+  const origins = [...config.FRONTEND_URL.split(',').map((s) => s.trim()), 'https://localhost', 'capacitor://localhost', 'http://localhost'];
   app.use(cors({ origin: (o, cb) => cb(null, !o || origins.includes(o) || config.NODE_ENV !== 'production'), credentials: false }));
   app.use(express.json({ limit: '1mb' }));
 

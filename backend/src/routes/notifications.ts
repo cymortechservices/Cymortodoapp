@@ -6,7 +6,8 @@ import { requireAuth, uid, verifyAction } from '../lib/auth.js';
 import { config } from '../config.js';
 import { HEARTBEATS, jobsCol, makeJobStore } from '../db/connection.js';
 import { hashEndpoint } from '../services/planner.js';
-import { vapidConfigured } from '../services/push.js';
+import { fcmConfigured, vapidConfigured } from '../services/push.js';
+import { mongoPrecondition } from '../services/precondition.js';
 import { MIN } from '../core/time.js';
 import mongoose from 'mongoose';
 
@@ -66,7 +67,7 @@ export function notificationsRouter(): Router {
     const hash = hashEndpoint(b.endpoint);
     const doc = await NotificationSubscription.findOneAndUpdate(
       { endpointHash: hash },
-      { $set: { userId: uid(req), endpoint: b.endpoint, keys: b.keys, userAgent: req.get('user-agent') ?? '', active: true, expiredReason: null } },
+      { $set: { userId: uid(req), platform: 'web', endpoint: b.endpoint, keys: b.keys, userAgent: req.get('user-agent') ?? '', active: true, expiredReason: null } },
       { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
     res.status(201).json({ id: String(doc!._id) });
@@ -80,7 +81,52 @@ export function notificationsRouter(): Router {
 
   r.get('/subscriptions', asyncHandler(async (req, res) => {
     const rows = await NotificationSubscription.find({ userId: uid(req) }).sort({ createdAt: -1 }).lean();
-    res.json({ subscriptions: rows.map((s) => ({ id: String(s._id), userAgent: s.userAgent, active: s.active, expiredReason: s.expiredReason, lastAcceptedAt: s.lastAcceptedAt, createdAt: s.createdAt })) });
+    res.json({ subscriptions: rows.map((s) => ({ id: String(s._id), platform: s.platform, localUntil: s.localUntil, syncedAt: s.syncedAt, userAgent: s.userAgent, active: s.active, expiredReason: s.expiredReason, lastAcceptedAt: s.lastAcceptedAt, createdAt: s.createdAt })) });
+  }));
+
+  // ---- native apps (Android/iOS): FCM token + local-schedule bookkeeping ----
+  const nativeBody = z.object({ token: z.string().min(20).max(4096), platform: z.enum(['android', 'ios']).default('android'), localUntil: z.number().int().min(0).default(0) });
+  r.post('/native/register', asyncHandler(async (req, res) => {
+    const b = parse(nativeBody, req.body);
+    const hash = hashEndpoint(`fcm:${b.token}`);
+    const doc = await NotificationSubscription.findOneAndUpdate(
+      { endpointHash: hash },
+      { $set: { userId: uid(req), platform: b.platform, endpoint: `fcm:${b.token}`, fcmToken: b.token, userAgent: req.get('user-agent') ?? '', active: true, expiredReason: null, localUntil: b.localUntil, syncedAt: Date.now() } },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
+    );
+    res.status(201).json({ id: String(doc!._id) });
+  }));
+  /** The phone reports how far ahead it has scheduled local alarms, so the server pushes only what is missing. */
+  r.post('/native/sync', asyncHandler(async (req, res) => {
+    const b = parse(nativeBody.pick({ token: true, localUntil: true }), req.body);
+    const r2 = await NotificationSubscription.updateOne({ endpointHash: hashEndpoint(`fcm:${b.token}`), userId: uid(req) }, { $set: { localUntil: b.localUntil, syncedAt: Date.now() } });
+    if (!r2.matchedCount) throw new HttpError(404, 'Device not registered', 'not_found');
+    res.json({ ok: true });
+  }));
+  r.delete('/native', asyncHandler(async (req, res) => {
+    const b = parse(z.object({ token: z.string().min(20) }), req.body);
+    await NotificationSubscription.deleteOne({ endpointHash: hashEndpoint(`fcm:${b.token}`), userId: uid(req) });
+    res.json({ ok: true });
+  }));
+
+  /**
+   * What the phone should schedule locally: upcoming jobs that would still be sent (cancelled / already-resolved
+   * ones are filtered with the same precondition the worker uses). Nearest first, capped (iOS allows ~64 pending).
+   */
+  r.get('/upcoming', asyncHandler(async (req, res) => {
+    const q = parse(z.object({ hours: z.coerce.number().int().min(1).max(24 * 14).default(24 * 7), limit: z.coerce.number().int().min(1).max(64).default(60) }), req.query);
+    const now = Date.now();
+    const rows = await jobsCol().find({ userId: uid(req), status: { $in: ['pending', 'retry'] }, fireAt: { $gt: now, $lte: now + q.hours * 3_600_000 } } as never).sort({ fireAt: 1 }).limit(300).toArray();
+    const out = [];
+    for (const j of rows) {
+      const pre = await mongoPrecondition(j);
+      if (!pre.send) continue;
+      out.push({ id: j.id, kind: j.kind, sourceId: j.sourceId, fireAt: j.fireAt, title: j.title, body: j.body, url: j.url });
+      if (out.length >= q.limit) break;
+    }
+    // `horizon` = every job firing at or before this instant is in the list (nothing was cut off before it)
+    const horizon = out.length >= q.limit ? out[out.length - 1]!.fireAt : now + q.hours * 3_600_000;
+    res.json({ now, horizon, jobs: out });
   }));
 
   /** Queues a real push through the same worker path. Proves the whole chain only if a worker is running. */
@@ -118,6 +164,8 @@ export function notificationsRouter(): Router {
     const workerAgeMs = hb ? now - (hb as unknown as { at: number }).at : null;
     res.json({
       vapidConfigured: vapidConfigured(),
+      fcmConfigured: fcmConfigured(),
+      nativeDevices: subs.filter((s) => s.active && s.platform !== 'web').length,
       activeDevices: subs.filter((s) => s.active).length,
       expiredDevices: subs.filter((s) => !s.active).length,
       worker: { alive: workerAgeMs !== null && workerAgeMs < 90_000, lastSeenMsAgo: workerAgeMs },

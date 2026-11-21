@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { config } from '../config.js';
@@ -25,13 +26,40 @@ async function oneTimeToken(userId: string, purpose: 'verify' | 'reset', ttlMs: 
   return raw;
 }
 
-const publicUser = (u: { _id: unknown; email: string; name: string; timezone: string; emailVerified: boolean }) => ({
-  id: String(u._id), email: u.email, name: u.name, timezone: u.timezone, emailVerified: u.emailVerified,
+const publicUser = (u: { _id: unknown; email?: string | null; name: string; timezone: string; emailVerified: boolean; guest?: boolean | null; passwordHash?: string | null }) => ({
+  id: String(u._id), email: u.email ?? null, name: u.name, timezone: u.timezone, emailVerified: u.emailVerified, guest: !!u.guest, hasPassword: !!u.passwordHash,
 });
+
+// 20 chars from a 31-symbol alphabet (no 0/O/1/I/L) = ~99 bits. Shown once; only its hash is stored.
+const RC_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export function newRecoveryCode(): string {
+  const bytes = randomBytes(20);
+  const chars = Array.from(bytes, (b) => RC_ALPHABET[b % RC_ALPHABET.length]).join('');
+  return chars.match(/.{5}/g)!.join('-');
+}
+export const normalizeRecovery = (c: string) => c.toUpperCase().replace(/[^A-Z0-9]/g, '');
+const recoveryHash = (c: string) => sha256(normalizeRecovery(c));
 
 export function authRouter(): Router {
   const r = Router();
   const limiter = rateLimit({ windowMs: 15 * 60_000, limit: config.NODE_ENV === 'test' ? 10_000 : 30, standardHeaders: true, legacyHeaders: false });
+
+  /** No-email start: just a username. The device keeps a session; the recovery code (shown once) restores it elsewhere. */
+  r.post('/guest', limiter, asyncHandler(async (req, res) => {
+    const b = parse(z.object({ name: z.string().trim().min(2, 'at least 2 characters').max(30), timezone: tz.default(config.DEFAULT_TIMEZONE) }), req.body);
+    const recoveryCode = newRecoveryCode();
+    const user = await User.create({ name: b.name, timezone: b.timezone, guest: true, recoveryHash: recoveryHash(recoveryCode) });
+    await UserSettings.create({ userId: user._id });
+    const tokens = await issueSession(String(user._id), req.get('user-agent') ?? undefined);
+    res.status(201).json({ user: publicUser(user), ...tokens, recoveryCode });
+  }));
+
+  r.post('/recover', limiter, asyncHandler(async (req, res) => {
+    const { recoveryCode } = parse(z.object({ recoveryCode: z.string().min(10).max(40) }), req.body);
+    const user = await User.findOne({ recoveryHash: recoveryHash(recoveryCode) });
+    if (!user) throw new HttpError(401, 'That recovery code is not valid', 'bad_recovery');
+    res.json({ user: publicUser(user), ...(await issueSession(String(user._id), req.get('user-agent') ?? undefined)) });
+  }));
 
   r.post('/register', limiter, asyncHandler(async (req, res) => {
     const b = parse(z.object({ email: z.string().email(), password, name: z.string().min(1).max(80), timezone: tz.default(config.DEFAULT_TIMEZONE) }), req.body);
@@ -40,7 +68,7 @@ export function authRouter(): Router {
     await UserSettings.create({ userId: user._id });
     const token = await oneTimeToken(String(user._id), 'verify', 48 * 3_600_000);
     const link = `${config.FRONTEND_URL}/verify-email?token=${token}`;
-    const mail = await sendMail(user.email, 'Verify your CYMOR TO-DO email', `Welcome to CYMOR TO-DO.\nVerify your email: ${link}\n`);
+    const mail = await sendMail(b.email, 'Verify your CYMOR TO-DO email', `Welcome to CYMOR TO-DO.\nVerify your email: ${link}\n`);
     const tokens = await issueSession(String(user._id), req.get('user-agent') ?? undefined);
     res.status(201).json({ user: publicUser(user), ...tokens, verificationEmail: mail, ...(config.NODE_ENV !== 'production' ? { devVerifyToken: token } : {}) });
   }));
@@ -49,7 +77,7 @@ export function authRouter(): Router {
     const b = parse(z.object({ email: z.string().email(), password: z.string().min(1) }), req.body);
     const user = await User.findOne({ email: b.email.toLowerCase() });
     // Same message for unknown email and wrong password (no account enumeration).
-    if (!user || !(await checkPassword(b.password, user.passwordHash))) throw new HttpError(401, 'Invalid email or password', 'bad_credentials');
+    if (!user || !user.passwordHash || !(await checkPassword(b.password, user.passwordHash))) throw new HttpError(401, 'Invalid email or password', 'bad_credentials');
     res.json({ user: publicUser(user), ...(await issueSession(String(user._id), req.get('user-agent') ?? undefined)) });
   }));
 
@@ -88,7 +116,7 @@ export function authRouter(): Router {
     const { email } = parse(z.object({ email: z.string().email() }), req.body);
     const user = await User.findOne({ email: email.toLowerCase() });
     let devToken: string | undefined;
-    if (user) {
+    if (user?.email) {
       devToken = await oneTimeToken(String(user._id), 'reset', 60 * 60_000);
       await sendMail(user.email, 'Reset your CYMOR TO-DO password', `Reset link (valid 1 hour): ${config.FRONTEND_URL}/reset-password?token=${devToken}\n`);
     }
@@ -120,10 +148,34 @@ export function authRouter(): Router {
     res.json({ user: publicUser(u!) });
   }));
 
+  /** Replaces the recovery code (the old one stops working). Shown once. */
+  r.post('/recovery-code', requireAuth, limiter, asyncHandler(async (req, res) => {
+    const code = newRecoveryCode();
+    await User.updateOne({ _id: uid(req) }, { $set: { recoveryHash: recoveryHash(code) } });
+    res.json({ recoveryCode: code });
+  }));
+
+  /** Optional: turn a guest account into an email+password account (keeps all data). */
+  r.post('/upgrade', requireAuth, limiter, asyncHandler(async (req, res) => {
+    const b = parse(z.object({ email: z.string().email(), password }), req.body);
+    const u = await User.findById(uid(req));
+    if (!u) throw new HttpError(401, 'Account no longer exists', 'unauthenticated');
+    if (u.passwordHash) throw new HttpError(409, 'This account already has a password', 'conflict');
+    if (await User.exists({ email: b.email.toLowerCase() })) throw new HttpError(409, 'An account with this email already exists', 'email_taken');
+    u.email = b.email.toLowerCase();
+    u.passwordHash = await hashPassword(b.password);
+    u.emailVerified = false;
+    await u.save();
+    const token = await oneTimeToken(String(u._id), 'verify', 48 * 3_600_000);
+    const mail = await sendMail(u.email, 'Verify your CYMOR TO-DO email', `Verify your email: ${config.FRONTEND_URL}/verify-email?token=${token}\n`);
+    res.json({ user: publicUser(u), verificationEmail: mail, ...(config.NODE_ENV !== 'production' ? { devVerifyToken: token } : {}) });
+  }));
+
   r.post('/change-password', requireAuth, limiter, asyncHandler(async (req, res) => {
     const b = parse(z.object({ currentPassword: z.string(), newPassword: password }), req.body);
     const u = await User.findById(uid(req));
-    if (!u || !(await checkPassword(b.currentPassword, u.passwordHash))) throw new HttpError(401, 'Current password is incorrect', 'bad_credentials');
+    if (!u?.passwordHash) throw new HttpError(400, 'This account has no password yet. Add an email and password first.', 'no_password');
+    if (!(await checkPassword(b.currentPassword, u.passwordHash))) throw new HttpError(401, 'Current password is incorrect', 'bad_credentials');
     u.passwordHash = await hashPassword(b.newPassword);
     await u.save();
     await DeviceSession.updateMany({ userId: u._id, _id: { $ne: req.user!.sid } }, { $set: { revoked: true } });
@@ -154,7 +206,7 @@ export function authRouter(): Router {
     res.setHeader('Content-Disposition', 'attachment; filename="cymor-todo-export.json"');
     res.json({
       exportedAt: new Date().toISOString(),
-      user: user && { email: user.email, name: user.name, timezone: user.timezone, createdAt: user.createdAt },
+      user: user && { email: user.email ?? null, name: user.name, timezone: user.timezone, createdAt: user.createdAt },
       settings, activities, reminders, habits, habitCompletions: completions, goals, focusSessions: focus, reflections,
       devices: subs.map((s) => ({ userAgent: s.userAgent, active: s.active, createdAt: s.createdAt })),
     });
@@ -162,10 +214,15 @@ export function authRouter(): Router {
 
   /** Permanent account deletion; requires the password. */
   r.delete('/me', requireAuth, limiter, asyncHandler(async (req, res) => {
-    const { password: pw } = parse(z.object({ password: z.string() }), req.body);
+    const { password: pw, confirmName } = parse(z.object({ password: z.string().optional(), confirmName: z.string().optional() }), req.body);
     const userId = uid(req);
     const u = await User.findById(userId);
-    if (!u || !(await checkPassword(pw, u.passwordHash))) throw new HttpError(401, 'Password is incorrect', 'bad_credentials');
+    if (!u) throw new HttpError(401, 'Account no longer exists', 'unauthenticated');
+    if (u.passwordHash) {
+      if (!pw || !(await checkPassword(pw, u.passwordHash))) throw new HttpError(401, 'Password is incorrect', 'bad_credentials');
+    } else if ((confirmName ?? '').trim() !== u.name) {
+      throw new HttpError(400, 'Type your username exactly to confirm deletion', 'confirm_required');
+    }
     await Promise.all([
       Activity, Reminder, Habit, HabitCompletion, Goal, FocusSession, DailyReflection, NotificationSubscription, DeviceSession, AuthToken, SharedSchedule, UserSettings,
     ].map((m) => (m as unknown as { deleteMany(f: object): Promise<unknown> }).deleteMany({ userId })));

@@ -37,3 +37,7 @@ Integration tests: `set MONGO_TEST_URI=mongodb://localhost:27017` then `npm test
 
 ## Honest limits (short version)
 Push delivery is never guaranteed by any provider; iOS needs a Home-Screen install; background sounds can't be forced; the worker must run on an always-on instance. Details in `docs/NOTIFICATIONS.md`.
+
+
+## V1.1: Android app & username-only start
+See `docs/ANDROID.md` (build/test the app) and `docs/STATUS.md` (what is and is not tested).

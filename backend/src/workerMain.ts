@@ -7,7 +7,7 @@ import mongoose from 'mongoose';
 import { config } from './config.js';
 import { connectDb, ensureIndexes, HEARTBEATS, makeJobStore } from './db/connection.js';
 import { processBatch } from './core/worker.js';
-import { MongoSubscriptionStore, WebPushProvider } from './services/push.js';
+import { CompositePushProvider, MongoSubscriptionStore } from './services/push.js';
 import { mongoPrecondition } from './services/precondition.js';
 import { topUpAllReminders } from './services/planner.js';
 
@@ -24,7 +24,7 @@ const TOPUP_MS = 10 * 60_000;
 await connectDb(config.MONGODB_URI);
 await ensureIndexes({ skipTtl: ['1', 'true'].includes(config.SKIP_TTL_INDEXES) });
 const store = makeJobStore();
-const deps = { store, push: new WebPushProvider(), subs: new MongoSubscriptionStore(), precondition: mongoPrecondition, workerId };
+const deps = { store, push: new CompositePushProvider(), subs: new MongoSubscriptionStore(), precondition: mongoPrecondition, workerId };
 let lastTopUp = 0;
 let stopping = false;
 

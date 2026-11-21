@@ -104,16 +104,26 @@ export function dataRouter(): Router {
   const r = Router();
 
   // ---- public read-only shared schedule: unguessable token, revocable, optional expiry ----
-  r.get('/public/shared/:token', asyncHandler(async (req, res) => {
-    const s = await SharedSchedule.findOne({ tokenHash: sha256(String(req.params.token)) }).lean();
+  const loadShare = async (token: string) => {
+    const s = await SharedSchedule.findOne({ tokenHash: sha256(token) }).lean();
     if (!s || s.revoked || (s.expiresAt && s.expiresAt.getTime() < Date.now())) throw new HttpError(404, 'This shared schedule is not available', 'not_found');
+    return s;
+  };
+  r.get('/public/shared/:token/calendar.ics', asyncHandler(async (req, res) => {
+    const s = await loadShare(String(req.params.token));
+    const { rows } = await loadRange(String(s.userId), s.from, s.to);
+    res.setHeader('Cache-Control', 'no-store');
+    res.type('text/calendar').attachment('cymor-schedule.ics').send(toIcs(rows.map((x) => ({ ...x, description: undefined })) as never, s.title));
+  }));
+  r.get('/public/shared/:token', asyncHandler(async (req, res) => {
+    const s = await loadShare(String(req.params.token));
     const { tz, name, rows } = await loadRange(String(s.userId), s.from, s.to);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Robots-Tag', 'noindex');
     res.json({
       title: s.title, owner: name.split(' ')[0], timezone: tz, from: s.from, to: s.to,
       // Only schedule basics: no notes, check-in data, analytics or contact info.
-      activities: rows.map((x) => ({ title: x.title, category: x.category, location: x.location, startUtc: x.startUtc, endUtc: x.endUtc, localDate: localDate(x.startUtc, tz) })),
+      activities: rows.map((x) => ({ title: x.title, category: x.category, color: (x as { color?: string }).color, location: x.location, startUtc: x.startUtc, endUtc: x.endUtc, localDate: localDate(x.startUtc, tz) })),
     });
   }));
 

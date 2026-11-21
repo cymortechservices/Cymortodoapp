@@ -44,6 +44,7 @@ export async function api<T = unknown>(path: string, opts: { method?: string; bo
   if (res.status === 401 && opts.auth !== false && (await refresh())) {
     try { res = await doFetch(); } catch { throw new NetworkError('Network unavailable'); }
   }
+  if (res.ok && opts.method && opts.method !== 'GET' && !path.startsWith('/auth') && !path.startsWith('/notifications/native')) window.dispatchEvent(new Event('cymor:changed'));
   if (opts.raw) return res as unknown as T;
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, data.error ?? 'error', data.message ?? `Request failed (${res.status})`, data.issues);
