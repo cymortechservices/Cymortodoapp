@@ -22,7 +22,7 @@ const TICK_MS = 5_000;
 const TOPUP_MS = 10 * 60_000;
 
 await connectDb(config.MONGODB_URI);
-await ensureIndexes({ skipTtl: ['1', 'true'].includes(config.SKIP_TTL_INDEXES) });
+await ensureIndexes({ skipTtl: ['1', 'true'].includes(config.SKIP_TTL_INDEXES) }).catch((e) => console.error('INDEX SETUP FAILED (worker keeps running):', e));
 const store = makeJobStore();
 const deps = { store, push: new CompositePushProvider(), subs: new MongoSubscriptionStore(), precondition: mongoPrecondition, workerId };
 let lastTopUp = 0;
