@@ -35,7 +35,21 @@ export async function ensureIndexes(opts: { skipTtl?: boolean } = {}): Promise<v
   const skip = (e: unknown) => !!opts.skipTtl && /expireAfterSeconds/.test(String(e));
   for (const mdl of Object.values(mongoose.models)) {
     const { toCreate } = await mdl.diffIndexes().catch(() => ({ toCreate: [{}] }));
-    if (toCreate.length) await mdl.createIndexes().catch((e) => { if (!skip(e)) throw e; });
+    if (!toCreate.length) continue;
+    for (let attempt = 0; ; attempt++) {
+      try { await mdl.createIndexes(); break; }
+      catch (e) {
+        if (skip(e)) break;
+        // An index from an older version has the same name but different options (e.g. users.email became sparse in V1.1).
+        // Drop just that index and build it again; data is untouched.
+        const code = (e as { code?: number }).code;
+        const name = /existing index:.*?name: "([^"]+)"/.exec(String((e as Error).message))?.[1];
+        if ((code === 85 || code === 86) && name && attempt < 6) {
+          console.warn(`Rebuilding index ${mdl.collection.name}.${name} (options changed)`);
+          await mdl.collection.dropIndex(name);
+        } else throw e;
+      }
+    }
   }
   const db = mongoose.connection.db!;
   const missing = async (col: string, wanted: { name: string }[]) => {
