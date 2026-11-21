@@ -62,16 +62,15 @@ export default function Dashboard() {
 
   return (
     <>
-      <PageTitle title={`${greet}, ${user?.name.split(' ')[0] ?? ''}`} sub={`${prettyDate(today)} · ${hhmm(now, tz)} · ${tz}`}
-        right={<Link to="/planner" className="btn-primary">+ Plan activity</Link>} />
+      <PageTitle title={`${greet}, ${user?.name.split(' ')[0] ?? ''}`} sub={`${prettyDate(today)} · ${hhmm(now, tz)}`} />
       {stale && <p className="mb-4 text-sm text-warn">Showing your last saved schedule (offline).</p>}
 
       {focus ? (
-        <Card className="rise relative overflow-hidden">
+        <section className="card-gold rise relative overflow-hidden p-5">
           <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full opacity-30 blur-3xl" style={{ background: focus.color }} />
           <div className="relative">
             <div className="mb-1 flex items-center gap-2 text-xs uppercase tracking-widest text-fg-dim">{running ? 'Right now' : 'Up next'} <StatusChip status={focus.result.status} /></div>
-            <h2 className="text-3xl font-bold">{focus.title}</h2>
+            <h2 className="text-[1.9rem] font-bold leading-tight">{focus.title}</h2>
             <p className="mt-1 text-sm text-fg-dim">{hhmm(focus.startUtc, tz)} – {hhmm(focus.endUtc, tz)} · {fmtDuration((focus.endUtc - focus.startUtc) / MIN)} planned{focus.location ? ` · ${focus.location}` : ''}</p>
 
             {running ? (
@@ -98,40 +97,44 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-        </Card>
+        </section>
       ) : (
         <Empty title={acts.length ? 'Everything for today is done' : 'A clear day'} hint={acts.length ? 'Nice work. Review your analytics or plan tomorrow.' : 'Plan your first activity and CYMOR will remind you at the right moments.'} action={<Link to="/planner" className="btn-primary">Plan activity</Link>} />
       )}
 
-      <div className="mt-4 grid grid-cols-3 gap-3">
+      <div className="mt-4 grid grid-cols-3 gap-2.5">
         {[['Planned', String(acts.length)], ['Completed', String(done)], ['Remaining', String(acts.filter((a) => !a.result.status.startsWith('completed') && a.result.status !== 'missed').length)]].map(([k, v]) => (
-          <Card key={k} className="!p-4 text-center"><div className="font-display text-2xl font-bold">{v}</div><div className="text-xs text-fg-dim">{k}</div></Card>
+          <Card key={k} className="!p-4 text-center"><div className="gold-text font-display text-3xl font-bold">{v}</div><div className="text-xs text-fg-dim">{k}</div></Card>
         ))}
       </div>
 
-      <h2 className="mb-3 mt-8 text-lg font-semibold">Today's timeline</h2>
+      <div className="mb-3 mt-8 flex items-end justify-between"><h2 className="text-xl font-semibold">Today's schedule</h2><Link to="/planner" className="text-sm text-accent">Full planner ›</Link></div>
       {acts.length === 0 ? <p className="text-sm text-fg-dim">Nothing scheduled.</p> : (
-        <ol className="space-y-2.5">
-          {acts.map((a) => {
-            const conflict = data?.conflicts.some((c) => c.a === a.id || c.b === a.id);
-            return (
-              <li key={a.id} className="card flex items-center gap-4 p-4">
-                <div className="h-10 w-1.5 shrink-0 rounded-full" style={{ background: a.color }} />
-                <div className="w-24 shrink-0 font-mono text-sm text-fg-dim">{hhmm(a.startUtc, tz)}<br />{hhmm(a.endUtc, tz)}</div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{a.title}</div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-fg-dim">
-                    <StatusChip status={a.result.status} />
-                    {a.result.overrunMinutes > 0 && <span className="text-warn">+{fmtDuration(a.result.overrunMinutes)} over</span>}
-                    {a.result.timeSavedMinutes > 0 && <span className="text-good">{fmtDuration(a.result.timeSavedMinutes)} saved</span>}
-                    {conflict && <span className="text-warn">⚠ overlaps another activity</span>}
-                  </div>
-                </div>
-                {a.result.status === 'unresolved' && <div className="flex gap-2"><button className="btn-ghost !py-1.5" onClick={() => act(a, 'check-in')}>I did it</button><button className="btn-ghost !py-1.5" onClick={() => act(a, 'miss')}>Missed</button></div>}
-              </li>
-            );
-          })}
-        </ol>
+        <div className="card overflow-hidden !rounded-2xl">
+          <table className="tbl">
+            <thead><tr><th>Time</th><th>Activity</th><th className="hidden sm:table-cell">Length</th><th className="text-right">Status</th></tr></thead>
+            <tbody>
+              {acts.map((a) => {
+                const conflict = data?.conflicts.some((c) => c.a === a.id || c.b === a.id);
+                const live = !!a.checkInAt && !a.checkOutAt;
+                return (
+                  <tr key={a.id} className={live ? 'bg-accent/[0.07]' : ''}>
+                    <td className="w-[5.2rem] whitespace-nowrap font-mono text-[13px] leading-snug"><span className="text-fg">{hhmm(a.startUtc, tz)}</span><br /><span className="text-fg-dim">{hhmm(a.endUtc, tz)}</span></td>
+                    <td className="max-w-0">
+                      <div className="flex items-center gap-2.5"><span className="h-8 w-1 shrink-0 rounded-full" style={{ background: a.color }} /><div className="min-w-0"><div className="truncate font-medium">{a.title}</div>{(a.location || conflict) && <div className="truncate text-xs text-fg-dim">{a.location}{conflict && <span className="text-warn"> ⚠ overlap</span>}</div>}</div></div>
+                    </td>
+                    <td className="hidden whitespace-nowrap text-fg-dim sm:table-cell">{fmtDuration(a.result.scheduledMinutes)}</td>
+                    <td className="whitespace-nowrap text-right">
+                      {a.result.status === 'unresolved'
+                        ? <div className="flex justify-end gap-1.5"><button className="btn-ghost btn-sm" onClick={() => act(a, 'check-in')}>Did it</button><button className="btn-ghost btn-sm" onClick={() => act(a, 'miss')}>Missed</button></div>
+                        : <div className="flex flex-col items-end gap-1"><StatusChip status={a.result.status} />{a.result.overrunMinutes > 0 && <span className="text-[11px] text-warn">+{fmtDuration(a.result.overrunMinutes)}</span>}{a.result.timeSavedMinutes > 0 && <span className="text-[11px] text-good">−{fmtDuration(a.result.timeSavedMinutes)}</span>}</div>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </>
   );

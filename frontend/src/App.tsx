@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { initNative, syncNative } from './lib/native';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './lib/auth';
 import Intro, { introSeen } from './components/Intro';
 import Shell from './components/Shell';
 import { Spinner } from './components/ui';
-import { Forgot, Login, Register, ResetPassword, VerifyEmail } from './pages/Auth';
+import { Forgot, Login, Register, ResetPassword, Restore, VerifyEmail, Welcome } from './pages/Auth';
 import Dashboard from './pages/Dashboard';
 import Planner from './pages/Planner';
 import Reminders from './pages/Reminders';
@@ -16,8 +17,9 @@ import Shared from './pages/Shared';
 
 function Protected() {
   const { user, loading } = useAuth();
+  useEffect(() => { if (user) void initNative().then(syncNative); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (loading) return <div className="grid h-full place-items-center"><Spinner /></div>;
-  return user ? <Shell /> : <Navigate to="/login" replace />;
+  return user ? <Shell /> : <Navigate to="/welcome" replace />;
 }
 
 export default function App() {
@@ -26,6 +28,8 @@ export default function App() {
     <>
       {intro && <Intro onDone={() => setIntro(false)} />}
       <Routes>
+        <Route path="/welcome" element={<Welcome />} />
+        <Route path="/restore" element={<Restore />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/forgot" element={<Forgot />} />

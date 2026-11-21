@@ -15,9 +15,12 @@ const notifyCfg = new Schema(
 
 export const userSchema = new Schema(
   {
-    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-    passwordHash: { type: String, required: true },
+    // Guest accounts have NO email/password: they sign in with a device secret and can restore with a recovery code.
+    email: { type: String, unique: true, sparse: true, lowercase: true, trim: true },
+    passwordHash: { type: String },
     name: { type: String, required: true, trim: true },
+    guest: { type: Boolean, default: false },
+    recoveryHash: { type: String, index: true },
     timezone: { type: String, default: 'Africa/Nairobi' },
     emailVerified: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now },
@@ -86,9 +89,14 @@ export const reminderSchema = new Schema(
 export const subscriptionSchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, required: true, index: true },
-    endpoint: { type: String, required: true },
+    platform: { type: String, enum: ['web', 'android', 'ios'], default: 'web' },
+    endpoint: { type: String, required: true }, // web: push endpoint; native: "fcm:<token>"
     endpointHash: { type: String, required: true, unique: true },
-    keys: { p256dh: { type: String, required: true }, auth: { type: String, required: true } },
+    keys: { p256dh: { type: String }, auth: { type: String } },
+    fcmToken: String,
+    // Native devices schedule notifications locally. The server only pushes what the phone has NOT scheduled itself:
+    localUntil: { type: Number, default: 0 }, // phone has local alarms for every job firing at or before this instant
+    syncedAt: { type: Number, default: 0 }, // when the phone last synced its local schedule
     userAgent: String,
     active: { type: Boolean, default: true },
     expiredReason: String,

@@ -5,7 +5,7 @@ import { hhmm, ymdOf } from '../lib/time';
 import type { Activity, Conflict } from '../lib/types';
 import { Field, Toggle } from './ui';
 
-const COLORS = ['#7c5cff', '#22d3ee', '#34d399', '#fbbf24', '#f87171', '#f472b6', '#60a5fa'];
+const COLORS = ['#D4AF37', '#E8A87C', '#7EC681', '#6FB1C8', '#C48BD9', '#E8685C', '#A8A08A'];
 const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 export default function ActivityForm({ initial, date, onSaved, onCancel }: { initial?: Activity; date: string; onSaved: (conflicts: Conflict[]) => void; onCancel: () => void }) {
@@ -43,8 +43,8 @@ export default function ActivityForm({ initial, date, onSaved, onCancel }: { ini
   return (
     <form onSubmit={submit} className="space-y-4">
       <Field label="Activity"><input className="input" required autoFocus maxLength={200} placeholder="e.g. Study Mathematics" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>
-      <div className="grid grid-cols-3 gap-3">
-        <Field label="Date"><input className="input" type="date" required value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2"><Field label="Date"><input className="input" type="date" required value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field></div>
         <Field label="Start"><input className="input" type="time" required value={f.start} onChange={(e) => setF({ ...f, start: e.target.value })} /></Field>
         <Field label="End"><input className="input" type="time" required value={f.end} onChange={(e) => setF({ ...f, end: e.target.value })} /></Field>
       </div>

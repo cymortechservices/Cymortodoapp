@@ -9,18 +9,19 @@ export async function scheduleImage(title: string, days: { date: string; items: 
   c.width = W; c.height = H;
   const g = c.getContext('2d')!;
   const bg = g.createLinearGradient(0, 0, W, H);
-  bg.addColorStop(0, '#0a0b14'); bg.addColorStop(1, '#161a33');
+  bg.addColorStop(0, '#0a0907'); bg.addColorStop(1, '#1d170b');
   g.fillStyle = bg; g.fillRect(0, 0, W, H);
-  g.fillStyle = '#ecf0ff'; g.font = '700 44px system-ui, sans-serif'; g.fillText('CYMOR TO-DO', pad, pad + 40);
-  g.fillStyle = '#949aba'; g.font = '24px system-ui, sans-serif'; g.fillText(`${title} · ${tz}`, pad, pad + 80);
+  const gg = g.createLinearGradient(pad, 0, pad + 420, 0); gg.addColorStop(0, '#F5D76E'); gg.addColorStop(1, '#B8860B');
+  g.fillStyle = gg; g.font = '700 46px Georgia, serif'; g.fillText('CYMOR TO-DO', pad, pad + 40);
+  g.fillStyle = '#a89f8a'; g.font = '24px system-ui, sans-serif'; g.fillText(`${title} · ${tz}`, pad, pad + 80);
   let y = pad + 130;
   for (const d of days) {
-    g.fillStyle = '#22d3ee'; g.font = '600 26px system-ui, sans-serif'; g.fillText(prettyDate(d.date), pad, y + 30); y += rowH;
-    if (!d.items.length) { g.fillStyle = '#5b6190'; g.font = '22px system-ui, sans-serif'; g.fillText('Nothing scheduled', pad + 24, y + 28); y += rowH; }
+    g.fillStyle = '#D4AF37'; g.font = '600 26px system-ui, sans-serif'; g.fillText(prettyDate(d.date), pad, y + 30); y += rowH;
+    if (!d.items.length) { g.fillStyle = '#6d6451'; g.font = '22px system-ui, sans-serif'; g.fillText('Nothing scheduled', pad + 24, y + 28); y += rowH; }
     for (const a of d.items) {
-      g.fillStyle = a.color || '#7c5cff'; g.fillRect(pad, y + 6, 8, rowH - 20);
-      g.fillStyle = '#ecf0ff'; g.font = '500 26px system-ui, sans-serif'; g.fillText(a.title.slice(0, 40), pad + 28, y + 28);
-      g.fillStyle = '#949aba'; g.font = '22px system-ui, sans-serif'; g.fillText(`${hhmm(a.startUtc, tz)} – ${hhmm(a.endUtc, tz)}${a.location ? '  ·  ' + a.location : ''}`, pad + 28, y + 54);
+      g.fillStyle = a.color || '#D4AF37'; g.fillRect(pad, y + 6, 8, rowH - 20);
+      g.fillStyle = '#f5efe0'; g.font = '500 26px system-ui, sans-serif'; g.fillText(a.title.slice(0, 40), pad + 28, y + 28);
+      g.fillStyle = '#a89f8a'; g.font = '22px system-ui, sans-serif'; g.fillText(`${hhmm(a.startUtc, tz)} – ${hhmm(a.endUtc, tz)}${a.location ? '  ·  ' + a.location : ''}`, pad + 28, y + 54);
       y += rowH;
     }
   }

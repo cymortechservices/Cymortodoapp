@@ -16,6 +16,7 @@ const schema = z.object({
   DEFAULT_TIMEZONE: z.string().default('Africa/Nairobi'),
   SMTP_URL: z.string().default(''), // e.g. smtps://user:pass@smtp.example.com ; empty => emails are logged
   MAIL_FROM: z.string().default('CYMOR TO-DO <no-reply@example.com>'),
+  FIREBASE_SERVICE_ACCOUNT: z.string().default(''), // service-account JSON (raw or base64) for Android/iOS FCM push
   SKIP_TTL_INDEXES: z.enum(['0', '1', 'true', 'false']).default('0'), // only for MongoDB-compatible stand-ins without TTL support
   UPLOAD_LIMIT_MB: z.coerce.number().default(10),
 });
