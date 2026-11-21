@@ -9,8 +9,11 @@ server.on('error', (e) => { console.error('Could not bind port:', e); process.ex
 
 try {
   await connectDb(config.MONGODB_URI);
-  await ensureIndexes({ skipTtl: ['1', 'true'].includes(config.SKIP_TTL_INDEXES) });
   console.log('Database connected');
+  // An index problem must never keep the API down; log it loudly and carry on.
+  await ensureIndexes({ skipTtl: ['1', 'true'].includes(config.SKIP_TTL_INDEXES) })
+    .then(() => console.log('Indexes ready'))
+    .catch((e) => console.error('INDEX SETUP FAILED (API keeps running):', e));
 } catch (e) {
   console.error('DATABASE CONNECTION FAILED. Check MONGODB_URI, the Atlas user/password, and Atlas Network Access (allow 0.0.0.0/0 for Render).\n', e);
   process.exit(1);
