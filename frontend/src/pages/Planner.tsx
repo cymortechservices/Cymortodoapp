@@ -7,6 +7,8 @@ import { saveBlob, scheduleImage } from '../lib/image';
 import type { Activity, Conflict } from '../lib/types';
 import { Card, Empty, ErrorBox, Modal, PageTitle, Spinner, StatusChip, useToast } from '../components/ui';
 import ActivityForm from '../components/ActivityForm';
+import { parseQuickAdd } from '../lib/quickAdd';
+import type { Template } from '../lib/templates';
 import ImportModal from '../components/ImportModal';
 import { useActivities } from '../components/useActivities';
 
@@ -19,7 +21,8 @@ export default function Planner() {
   const wk = startOfWeek(sel, settings?.weekStartsOn ?? 1);
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(wk, i)), [wk]);
   const { data, error, loading, reload } = useActivities(days[0]!, days[6]!);
-  const [form, setForm] = useState<{ open: boolean; edit?: Activity }>({ open: false });
+  const [form, setForm] = useState<{ open: boolean; edit?: Activity; tpl?: Partial<Template>; date?: string }>({ open: false });
+  const [quick, setQuick] = useState(''); const [qbusy, setQbusy] = useState(false);
   const [imp, setImp] = useState(false);
   const [share, setShare] = useState<string | null>(null);
   const [sp, setSp] = useSearchParams();
@@ -32,6 +35,20 @@ export default function Planner() {
     setForm({ open: false }); void reload();
     toast(conf.length ? `Saved. ${conf.length} overlap${conf.length > 1 ? 's' : ''} detected: nothing was moved, you decide.` : 'Saved', conf.length ? 'info' : 'ok');
   };
+  const quickAdd = async (e: React.FormEvent) => {
+    e.preventDefault(); if (!quick.trim()) return;
+    const q = parseQuickAdd(quick, today);
+    if (q.errors.length) { toast(q.errors[0]!, 'err'); return; }
+    setQbusy(true);
+    try {
+      const body: Record<string, unknown> = { title: q.title, date: q.date, start: q.start, end: q.end, category: 'general' };
+      if (q.end <= q.start) { const d = new Date(`${q.date}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); body.endDate = d.toISOString().slice(0, 10); }
+      if (q.weekdays) { await api('/activities/series', { method: 'POST', body: { ...body, until: q.until, weekdays: q.weekdays } }); saved([]); }
+      else { const r = await api<{ conflicts: Conflict[] }>('/activities', { method: 'POST', body }); saved(r.conflicts); }
+      setQuick(''); setSel(q.date);
+    } catch (x) { toast(errMsg(x), 'err'); } finally { setQbusy(false); }
+  };
+  const duplicate = (a: Activity) => setForm({ open: true, date: addDays(a.localDate, 1), tpl: { title: a.title, category: a.category, color: a.color, location: a.location ?? '', start: hhmm(a.startUtc, tz), end: hhmm(a.endUtc, tz), notify: a.notify as never } });
   const del = async (a: Activity) => { if (!confirm(`Delete "${a.title}"?`)) return; try { await api(`/activities/${a.id}`, { method: 'DELETE' }); void reload(); } catch (e) { toast(errMsg(e), 'err'); } };
   const toggleCancel = async (a: Activity) => { try { await api(`/activities/${a.id}/${a.cancelled ? 'uncancel' : 'cancel'}`, { method: 'POST', body: {} }); void reload(); } catch (e) { toast(errMsg(e), 'err'); } };
   const exportImg = async (type: 'image/png' | 'image/jpeg') => {
@@ -46,6 +63,11 @@ export default function Planner() {
   return (
     <>
       <PageTitle title="Planner" sub={`Week of ${prettyDate(days[0]!)} · ${tz}`} right={<button className="btn-ghost btn-sm" onClick={() => setImp(true)}>Import</button>} />
+
+      <form onSubmit={quickAdd} className="mb-6 flex gap-2">
+        <input aria-label="Quick add" className="input flex-1" placeholder='Quick add: Gym tomorrow 6am 1h' value={quick} onChange={(e) => setQuick(e.target.value)} />
+        <button className="btn-primary shrink-0" disabled={qbusy || !quick.trim()}>Add</button>
+      </form>
 
       <div className="mb-5 flex items-center gap-2">
         <button aria-label="Previous week" className="btn-ghost !px-3" onClick={() => setSel(addDays(wk, -7))}>‹</button>
@@ -64,7 +86,28 @@ export default function Planner() {
         <>
           <h2 className="mb-3 text-lg font-semibold">{prettyDate(sel)}{sel === today && <span className="chip ml-2">Today</span>}</h2>
           {byDay(sel).length === 0 ? <Empty title="Nothing planned" hint="Add an activity for this day." action={<button className="btn-primary" onClick={() => setForm({ open: true })}>+ New activity</button>} /> : (
-            <div className="card overflow-hidden !rounded-2xl">
+            <>
+            <div className="space-y-3 sm:hidden">
+              {byDay(sel).map((a) => (
+                <div key={a.id} className={`card !rounded-2xl p-4 ${a.cancelled ? 'opacity-55' : ''}`}>
+                  <div className="flex gap-3">
+                    <span className="w-1 shrink-0 rounded-full" style={{ background: a.color }} />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-mono text-[13px] text-fg-dim">{hhmm(a.startUtc, tz)} – {hhmm(a.endUtc, tz)} · {fmtDuration(a.result.scheduledMinutes)}</div>
+                      <div className={`mt-1 break-words text-base font-semibold ${a.cancelled ? 'line-through' : ''}`}>{a.title}</div>
+                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-fg-dim"><span className="capitalize">{a.category}</span>{a.location && <span>· {a.location}</span>}<StatusChip status={a.result.status} />{conflictIds.has(a.id) && <span className="text-warn">⚠ overlap</span>}</div>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button className="btn-ghost btn-sm" onClick={() => setForm({ open: true, edit: a })}>Edit</button>
+                    <button className="btn-ghost btn-sm" onClick={() => duplicate(a)}>Duplicate</button>
+                    <button className="btn-ghost btn-sm" onClick={() => toggleCancel(a)}>{a.cancelled ? 'Restore' : 'Cancel'}</button>
+                    <button aria-label={`Delete ${a.title}`} className="btn-danger btn-sm" onClick={() => del(a)}>Delete</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="card hidden overflow-hidden !rounded-2xl sm:block">
               <table className="tbl">
                 <thead><tr><th>Time</th><th>Activity</th><th className="hidden sm:table-cell">Length</th><th className="text-right">Manage</th></tr></thead>
                 <tbody>
@@ -77,12 +120,13 @@ export default function Planner() {
                             <div className="flex flex-wrap items-center gap-x-2 text-xs text-fg-dim"><span className="capitalize">{a.category}</span>{a.location && <span className="truncate">· {a.location}</span>}<StatusChip status={a.result.status} />{conflictIds.has(a.id) && <span className="text-warn">⚠ overlap</span>}</div></div></div>
                       </td>
                       <td className="hidden whitespace-nowrap text-fg-dim sm:table-cell">{fmtDuration(a.result.scheduledMinutes)}</td>
-                      <td className="whitespace-nowrap text-right"><div className="flex justify-end gap-1.5"><button className="btn-ghost btn-sm" onClick={() => setForm({ open: true, edit: a })}>Edit</button><button className="btn-ghost btn-sm hidden sm:inline-flex" onClick={() => toggleCancel(a)}>{a.cancelled ? 'Restore' : 'Cancel'}</button><button aria-label={`Delete ${a.title}`} className="btn-danger btn-sm hidden sm:inline-flex" onClick={() => del(a)}>✕</button></div></td>
+                      <td className="whitespace-nowrap text-right"><div className="flex justify-end gap-1.5"><button className="btn-ghost btn-sm" onClick={() => setForm({ open: true, edit: a })}>Edit</button><button className="btn-ghost btn-sm" onClick={() => duplicate(a)}>Duplicate</button><button className="btn-ghost btn-sm" onClick={() => toggleCancel(a)}>{a.cancelled ? 'Restore' : 'Cancel'}</button><button aria-label={`Delete ${a.title}`} className="btn-danger btn-sm" onClick={() => del(a)}>✕</button></div></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            </>
           )}
           {(data?.conflicts.length ?? 0) > 0 && <p className="mt-4 text-sm text-warn">This week has {data!.conflicts.length} overlapping pair(s). CYMOR never moves your activities for you.</p>}
 
@@ -97,7 +141,7 @@ export default function Planner() {
       )}
 
       <Modal open={form.open} onClose={() => setForm({ open: false })} title={form.edit ? 'Edit activity' : 'New activity'}>
-        <ActivityForm key={form.edit?.id ?? 'new'} initial={form.edit} date={sel} onSaved={saved} onCancel={() => setForm({ open: false })} />
+        <ActivityForm key={form.edit?.id ?? form.tpl?.title ?? 'new'} initial={form.edit} template={form.tpl} date={form.date ?? sel} onSaved={saved} onCancel={() => setForm({ open: false })} />
         {form.edit && <div className="mt-4 flex gap-2 border-t border-ink-700 pt-4"><button className="btn-ghost btn-sm flex-1" onClick={async () => { await toggleCancel(form.edit!); setForm({ open: false }); }}>{form.edit.cancelled ? 'Restore activity' : 'Cancel this activity'}</button><button className="btn-danger btn-sm flex-1" onClick={async () => { await del(form.edit!); setForm({ open: false }); }}>Delete</button></div>}
       </Modal>
       <ImportModal open={imp} onClose={() => setImp(false)} defaultDate={sel} onDone={(n) => { toast(`Imported ${n} activities`, 'ok'); void reload(); }} />

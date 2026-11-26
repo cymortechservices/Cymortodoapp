@@ -1,3 +1,4 @@
+import Momentum from '../components/Momentum';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
@@ -107,6 +108,8 @@ export default function Dashboard() {
           <Card key={k} className="!p-4 text-center"><div className="gold-text font-display text-3xl font-bold">{v}</div><div className="text-xs text-fg-dim">{k}</div></Card>
         ))}
       </div>
+
+      <Momentum />
 
       <div className="mb-3 mt-8 flex items-end justify-between"><h2 className="text-xl font-semibold">Today's schedule</h2><Link to="/planner" className="text-sm text-accent">Full planner ›</Link></div>
       {acts.length === 0 ? <p className="text-sm text-fg-dim">Nothing scheduled.</p> : (

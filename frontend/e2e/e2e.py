@@ -47,13 +47,18 @@ def run():
         p.locator('input[type=time]').nth(0).fill(s); p.locator('input[type=time]').nth(1).fill(e)
         p.screenshot(path='/home/claude/scratch/shots/03-form.png')
         p.get_by_role('button', name='Add activity').click()
-        expect(p.get_by_text('Study Mathematics').first).to_be_visible(timeout=8000)
+        expect(p.get_by_text('Study Mathematics').locator('visible=true').first).to_be_visible(timeout=8000)
+        # quick add: type one line
+        calm(p); p.get_by_label('Quick add').fill('Quick walk tomorrow 6pm for 30m'); p.get_by_role('button', name='Add', exact=True).click()
+        expect(p.get_by_text('Quick walk').locator('visible=true').first).to_be_visible(timeout=8000)
+        print('quick add OK')
+        p.goto(BASE+'/planner'); p.wait_for_timeout(800)
         # overlapping second activity -> overlap warning, nothing moved
         calm(p); p.get_by_role('link', name='New activity').first.click()
         p.get_by_role('textbox', name='Activity').fill('Overlapper')
         p.locator('input[type=time]').nth(0).fill(s); p.locator('input[type=time]').nth(1).fill(e)
         p.get_by_role('button', name='Add activity').click()
-        expect(p.get_by_text('overlap').first).to_be_visible(timeout=8000)
+        expect(p.get_by_text('overlap').locator('visible=true').first).to_be_visible(timeout=8000)
         p.screenshot(path='/home/claude/scratch/shots/04-planner.png')
         # the start ALARM screen takes over because Study Mathematics has begun and nobody checked in
         calm(p); p.reload()
@@ -83,7 +88,7 @@ def run():
         p.get_by_role('textbox', name='Activity').fill('Written offline')
         p.locator('input[type=time]').nth(0).fill('22:00'); p.locator('input[type=time]').nth(1).fill('22:30')
         p.get_by_role('button', name='Add activity').click()
-        expect(p.get_by_text('Written offline').first).to_be_visible(timeout=8000)
+        expect(p.get_by_text('Written offline').locator('visible=true').first).to_be_visible(timeout=8000)
         p.screenshot(path='/home/claude/scratch/shots/06-offline.png')
         ops=p.evaluate("""() => new Promise(r => { const q = indexedDB.open('cymor-local'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('ops'); g.onsuccess = () => r(g.result) } })""")
         print('changes queued on the phone while offline:', [o['method']+' '+o['path'] for o in ops])
@@ -131,6 +136,7 @@ def run():
         expect(p.get_by_role('heading', name='Backup & recovery')).to_be_visible(timeout=8000)
         p.get_by_label('Theme').first if False else None
         p.screenshot(path='/home/claude/scratch/shots/12-settings.png', full_page=True)
+        expect(p.get_by_role('heading', name='Alarm readiness')).to_be_visible()
         # service worker registered (prod build)
         p.wait_for_timeout(1000)
         sw=p.evaluate("navigator.serviceWorker.getRegistration().then(r => !!r && !!(r.active||r.installing||r.waiting))")

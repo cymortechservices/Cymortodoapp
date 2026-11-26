@@ -3,19 +3,22 @@ import { api, errMsg } from '../lib/api';
 import { useAuth, type NotifyCfg } from '../lib/auth';
 import { hhmm, ymdOf } from '../lib/time';
 import type { Activity, Conflict } from '../lib/types';
-import { Field, Toggle } from './ui';
+import { Field, Toggle, useToast } from './ui';
+import { addTemplate, loadTemplates, removeTemplate, type Template } from '../lib/templates';
 
 const COLORS = ['#D4AF37', '#E8A87C', '#7EC681', '#6FB1C8', '#C48BD9', '#E8685C', '#A8A08A'];
 const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
-export default function ActivityForm({ initial, date, onSaved, onCancel }: { initial?: Activity; date: string; onSaved: (conflicts: Conflict[]) => void; onCancel: () => void }) {
+export default function ActivityForm({ initial, template: tpl0, date, onSaved, onCancel }: { initial?: Activity; template?: Partial<Template>; date: string; onSaved: (conflicts: Conflict[]) => void; onCancel: () => void }) {
   const { user, settings } = useAuth();
   const tz = user?.timezone ?? 'UTC';
+  const toast = useToast();
+  const [tpls, setTpls] = useState<Template[]>(() => loadTemplates());
   const [f, setF] = useState({
-    title: initial?.title ?? '', category: initial?.category ?? 'general', color: initial?.color ?? COLORS[0]!, location: initial?.location ?? '', description: initial?.description ?? '',
-    date: initial ? ymdOf(initial.startUtc, tz) : date, start: initial ? hhmm(initial.startUtc, tz) : '09:00', end: initial ? hhmm(initial.endUtc, tz) : '10:00',
+    title: initial?.title ?? tpl0?.title ?? '', category: initial?.category ?? tpl0?.category ?? 'general', color: initial?.color ?? tpl0?.color ?? COLORS[0]!, location: initial?.location ?? tpl0?.location ?? '', description: initial?.description ?? '',
+    date: initial ? ymdOf(initial.startUtc, tz) : date, start: initial ? hhmm(initial.startUtc, tz) : tpl0?.start ?? '09:00', end: initial ? hhmm(initial.endUtc, tz) : tpl0?.end ?? '10:00',
   });
-  const [notify, setNotify] = useState<NotifyCfg>(initial?.notify ?? settings?.defaultNotify ?? { preStart: { enabled: true, minutesBefore: 10 }, start: { enabled: true }, alarm: true, end: { enabled: true }, overdue: { enabled: true, minutesAfterEnd: 15 } });
+  const [notify, setNotify] = useState<NotifyCfg>(initial?.notify ?? tpl0?.notify ?? settings?.defaultNotify ?? { preStart: { enabled: true, minutesBefore: 10 }, start: { enabled: true }, alarm: true, end: { enabled: true }, overdue: { enabled: true, minutesAfterEnd: 15 } });
   const [repeat, setRepeat] = useState(false);
   const [until, setUntil] = useState('');
   const [days, setDays] = useState<number[]>([]);
@@ -35,6 +38,8 @@ export default function ActivityForm({ initial, date, onSaved, onCancel }: { ini
     } catch (x) { setErr(errMsg(x)); } finally { setBusy(false); }
   };
 
+  const useTpl = (t: Template) => { setF((x) => ({ ...x, title: t.title, category: t.category, color: t.color, location: t.location, start: t.start, end: t.end })); if (t.notify) setNotify(t.notify); };
+  const saveTpl = () => { if (!f.title.trim()) { setErr('Give the activity a name first'); return; } setTpls(addTemplate({ title: f.title.trim(), category: f.category, color: f.color, location: f.location, start: f.start, end: f.end, notify })); toast('Saved as a template', 'ok'); };
   const row = (label: string, on: boolean, set: (v: boolean) => void, extra?: React.ReactNode) => (
     <div className="flex items-center justify-between gap-3 py-1.5 text-sm"><span className="flex items-center gap-2">{label}{extra}</span><Toggle checked={on} onChange={set} label={label} /></div>
   );
@@ -42,6 +47,16 @@ export default function ActivityForm({ initial, date, onSaved, onCancel }: { ini
 
   return (
     <form onSubmit={submit} className="space-y-4">
+      {!initial && tpls.length > 0 && (
+        <div>
+          <span className="label">Templates</span>
+          <div className="flex flex-wrap gap-2">{tpls.map((t) => (
+            <span key={t.id} className="inline-flex items-center overflow-hidden rounded-full border border-ink-700 text-sm">
+              <button type="button" className="px-3.5 py-2 hover:bg-ink-800/60" onClick={() => useTpl(t)}><span className="mr-2 inline-block h-2 w-2 rounded-full" style={{ background: t.color }} />{t.name}</button>
+              <button type="button" aria-label={`Remove template ${t.name}`} className="border-l border-ink-700 px-2.5 py-2 text-fg-dim hover:text-bad" onClick={() => setTpls(removeTemplate(t.id))}>×</button>
+            </span>))}</div>
+        </div>
+      )}
       <Field label="Activity"><input className="input" required autoFocus maxLength={200} placeholder="e.g. Study Mathematics" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>
       <div className="grid grid-cols-2 gap-3">
         <div className="col-span-2"><Field label="Date"><input className="input" type="date" required value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></Field></div>
@@ -76,7 +91,7 @@ export default function ActivityForm({ initial, date, onSaved, onCancel }: { ini
         </div>
       )}
       {err && <p role="alert" className="text-sm text-bad">{err}</p>}
-      <div className="flex justify-end gap-2"><button type="button" className="btn-ghost" onClick={onCancel}>Cancel</button><button className="btn-primary" disabled={busy}>{busy ? 'Saving…' : initial ? 'Save changes' : 'Add activity'}</button></div>
+      <div className="flex flex-wrap items-center justify-end gap-2">{!initial && <button type="button" className="btn-ghost mr-auto" onClick={saveTpl}>Save as template</button>}<button type="button" className="btn-ghost" onClick={onCancel}>Cancel</button><button className="btn-primary" disabled={busy}>{busy ? 'Saving…' : initial ? 'Save changes' : 'Add activity'}</button></div>
     </form>
   );
 }

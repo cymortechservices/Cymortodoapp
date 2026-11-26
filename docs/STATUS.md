@@ -77,10 +77,21 @@ FerretDB crashed (its bug, not the app's) when a second process re-issued `creat
 - Works with no internet: the phone keeps its own copy of your data (IndexedDB) and queues changes, then backs up in order when online. Activities, check-in/out, pause, reminders, analytics and notifications are all local. A new guest can start fully offline; the cloud account and recovery code are created later.
 - Loud alarm when an activity starts (per-activity toggle plus a default in Settings): a high-priority alarm channel with its own sound, repeats at 0/1/2 min, plus an in-app full-screen alarm with beeps and vibration. "Test alarm" is in Settings.
 - Typography: Outfit (headings) + Plus Jakarta Sans (body), larger sizes, looser spacing, roomier cards.
-- Settings reorganised into cards, with developer credit: Legendary Smiley Cymor, C.E.O. CYMORTECHSERVICES.
+- Planner on phones is now stacked cards (the table was clipping buttons). Settings reorganised into cards, with developer credit: Legendary Smiley Cymor, C.E.O. CYMORTECHSERVICES.
 
 **Tested here**: backend 68/68 (FerretDB), tsc backend+frontend, vitest 17/17, production build, Playwright e2e at 1280px and 390px (alarm screen, offline reload, offline create then sync, no horizontal overflow).
 
 **NOT tested**: the APK has never been compiled or run on a phone here; the real native alarm, local notifications and FCM are untested. Alarm volume follows the phone's notification volume (no native alarm-stream/full-screen-over-lockscreen plugin). iOS not built.
 
 **Known limits**: after updating an old install, open once online to download the local copy. Logging out clears local data (guests need the recovery code). Sharing, devices, delete account, upgrade and recovery-code regeneration need internet. Redeploy the backend (new `alarm` and `clientId` fields) and rebuild the APK with the Actions workflow.
+
+## V1.3 (true alarm, permission onboarding, planner speed, streaks and weekly review)
+**True alarm (Android native code, new)** in `frontend/android/app/src/main/java/com/cymortech/todo/`:
+`AlarmScheduler` registers each start time with `AlarmManager.setAlarmClock` (fires through Doze, no extra permission) and keeps the list so `BootReceiver` can re-register after a reboot or app update. `AlarmReceiver` starts `AlarmService`, a foreground service that plays the alarm sound on the **alarm audio stream**, raises alarm volume to ~85% while ringing (restored after), vibrates, takes a wake lock, and shows a **full-screen alert over the lock screen**. It rings up to 60 s, then rings again (up to 2 repeats) until you tap *I am starting*, *Snooze 5 min* or *Stop*. `AlarmPlugin` is the JavaScript bridge (`src/lib/alarmNative.ts`). If the plugin is missing the app falls back to the V1.2 notification-channel alarm.
+**Permission onboarding**: first launch shows a checklist (notifications, lock-screen alert, battery Unrestricted, exact alarms, Do Not Disturb) with Allow buttons that open the right Android screen, plus brand-specific tips (Tecno/Infinix/itel, Xiaomi, Samsung, Oppo/Realme, Vivo, Huawei). The same checklist lives in Settings > Alarm readiness with a Test button.
+**Planner**: quick-add line ("Gym tomorrow 6am for 1h", "Revision 14:00-16:00 every mon wed"), saved templates, Duplicate (to the next day). Weekly repeat already existed. Drag-to-reschedule, swipe gestures and home-screen widgets are NOT built.
+**Engagement**: Dashboard streak card with next milestone and a plain-language weekly review (vs the week before).
+
+**Tested here**: tsc, vitest 29/29 (new: quick-add parser, weekly review), production build, Playwright e2e (quick add, alarm screen, offline, no overflow at 390px), the Java files parse (syntax check only).
+**NOT tested**: the Java was never compiled against the Android SDK and the alarm never ran on a phone. A compile error would show up in the GitHub Actions APK build log. Please test on the phone: lock the screen, use Settings > Test alarm, then a real activity 2 minutes ahead, with the app closed.
+**Update note**: debug APKs from CI may be signed with a different key each build. If Android refuses to update, uninstall first (local data on the phone is lost; a guest needs the recovery code).

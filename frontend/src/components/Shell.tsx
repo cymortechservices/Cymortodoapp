@@ -8,6 +8,8 @@ import { RecoveryCard } from '../pages/Auth';
 import { playSound } from '../lib/sound';
 import { Modal, useToast } from './ui';
 import AlarmOverlay from './AlarmOverlay';
+import AlarmReadiness from './AlarmReadiness';
+import { hasNativeAlarm } from '../lib/alarmNative';
 
 const NAV = [
   ['/dashboard', 'Today', 'M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3 2'],
@@ -27,6 +29,7 @@ export default function Shell() {
   const toast = useToast();
   const [queued, setQueued] = useState(0);
 
+  const [guide, setGuide] = useState(() => { try { return hasNativeAlarm() && localStorage.getItem('cymor.permGuide') !== '2'; } catch { return false; } });
   const [pendingCode, setPendingCode] = useState<string | null>(L.get('recoveryToShow'));
   const [authLost, setAuthLost] = useState(L.get('authLost'));
   const refreshState = async () => { setQueued(await pendingCount().catch(() => 0)); setPendingCode(L.get('recoveryToShow')); setAuthLost(L.get('authLost')); };
@@ -74,6 +77,11 @@ export default function Shell() {
         <Outlet />
       </main>
       <Modal open={!!pendingCode} onClose={() => undefined} title="Save your recovery code">{pendingCode && <RecoveryCard code={pendingCode} onDone={async () => { await L.set('recoveryToShow', null); setPendingCode(null); }} />}</Modal>
+      <Modal open={guide && !pendingCode} onClose={() => undefined} title="Make sure your alarm can ring">
+        <p className="mb-5 text-[15px] leading-relaxed text-fg-dim">Phones often block alarms to save battery. Tap Allow on each line so CYMOR can wake you at the exact start time.</p>
+        <AlarmReadiness />
+        <button className="btn-primary mt-5 w-full" onClick={() => { try { localStorage.setItem('cymor.permGuide', '2'); } catch { /* */ } setGuide(false); }}>Continue</button>
+      </Modal>
       <AlarmOverlay />
       <nav aria-label="Primary" className="fixed inset-x-3 bottom-[max(env(safe-area-inset-bottom),10px)] z-40 flex items-center justify-between rounded-[1.75rem] border border-accent/25 bg-ink-900/92 px-2 py-1.5 shadow-[0_18px_50px_-12px_rgba(0,0,0,.8)] backdrop-blur-xl md:hidden">
         {link(NAV[0][0], NAV[0][1], NAV[0][2], true)}

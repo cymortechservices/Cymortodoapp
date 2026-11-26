@@ -7,6 +7,7 @@ import { SOUNDS, playSound, startAlarm, stopAlarm } from '../lib/sound';
 import { isNative, testAlarm } from '../lib/native';
 import { timezones } from '../lib/time';
 import { RecoveryCard } from './Auth';
+import AlarmReadiness from '../components/AlarmReadiness';
 import { Modal, ErrorBox, Field, PageTitle, Spinner, Toggle, useToast } from '../components/ui';
 
 const ICONS: Record<string, string> = {
@@ -74,10 +75,13 @@ export default function Settings() {
 
       <Section icon="alarm" tone="gold" title="Loud alarm" desc="When an activity starts, your phone rings a loud alarm, even if the app is closed or the phone is locked. It repeats twice until you check in.">
         <Row label="Alarm when an activity starts" hint="Applies to new activities. You can change it for each activity too."><Toggle checked={n.alarm !== false} onChange={(v) => setNotify({ alarm: v })} label="Start alarm" /></Row>
-        <Row label="Test the alarm" hint={isNative() ? 'Rings in 5 seconds. Turn the phone’s notification volume up for a louder alarm.' : 'Plays the alarm sound now. The installed Android app also rings with the phone locked.'}>
+        <Row label="Test the alarm" hint={isNative() ? 'Rings in 5 seconds on the alarm volume. Lock the phone first to test the lock screen.' : 'Plays the alarm sound now. The installed Android app also rings with the phone locked.'}>
           <button className="btn-ghost btn-sm" onClick={() => { if (isNative()) { void testAlarm(); toast('Alarm will ring in 5 seconds', 'ok'); } else { startAlarm(); setTimeout(stopAlarm, 4500); } }}>Test alarm</button>
         </Row>
-        {isNative() && <p className="mt-2 rounded-2xl bg-ink-800/50 p-4 text-xs leading-relaxed text-fg-dim">For the most reliable alarm: Android Settings → Apps → CYMOR TO-DO → Notifications → <b className="text-fg">Activity alarm</b> → allow sound and “override Do Not Disturb”, and set Battery to Unrestricted.</p>}
+      </Section>
+
+      <Section icon="shield" tone="gold" title="Alarm readiness" desc="Checks that your phone will really let the alarm ring.">
+        <AlarmReadiness />
       </Section>
 
       <Section icon="bell" title="Notifications" desc="What CYMOR tells you for every new activity.">
@@ -138,7 +142,7 @@ export default function Settings() {
         <p className="text-xs uppercase tracking-[0.25em] text-fg-dim">Designed &amp; developed by</p>
         <p className="gold-text mt-2 font-display text-2xl font-bold">Legendary Smiley Cymor</p>
         <p className="mt-2 text-sm text-fg-dim">C.E.O, CYMORTECHSERVICES</p>
-        <p className="mt-6 text-xs text-fg-dim">Version 1.2 · Own your time. Master your day.</p>
+        <p className="mt-6 text-xs text-fg-dim">Version 1.3 · Own your time. Master your day.</p>
       </footer>
     </>
   );
