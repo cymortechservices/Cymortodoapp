@@ -15,7 +15,7 @@ export default function ActivityForm({ initial, date, onSaved, onCancel }: { ini
     title: initial?.title ?? '', category: initial?.category ?? 'general', color: initial?.color ?? COLORS[0]!, location: initial?.location ?? '', description: initial?.description ?? '',
     date: initial ? ymdOf(initial.startUtc, tz) : date, start: initial ? hhmm(initial.startUtc, tz) : '09:00', end: initial ? hhmm(initial.endUtc, tz) : '10:00',
   });
-  const [notify, setNotify] = useState<NotifyCfg>(initial?.notify ?? settings?.defaultNotify ?? { preStart: { enabled: true, minutesBefore: 10 }, start: { enabled: true }, end: { enabled: true }, overdue: { enabled: true, minutesAfterEnd: 15 } });
+  const [notify, setNotify] = useState<NotifyCfg>(initial?.notify ?? settings?.defaultNotify ?? { preStart: { enabled: true, minutesBefore: 10 }, start: { enabled: true }, alarm: true, end: { enabled: true }, overdue: { enabled: true, minutesAfterEnd: 15 } });
   const [repeat, setRepeat] = useState(false);
   const [until, setUntil] = useState('');
   const [days, setDays] = useState<number[]>([]);
@@ -59,6 +59,7 @@ export default function ActivityForm({ initial, date, onSaved, onCancel }: { ini
         <legend className="px-1 text-xs uppercase tracking-wider text-fg-dim">Notifications</legend>
         {row('Heads-up before start', notify.preStart.enabled, (v) => setNotify({ ...notify, preStart: { ...notify.preStart, enabled: v } }), notify.preStart.enabled && <>{num(notify.preStart.minutesBefore, (n) => setNotify({ ...notify, preStart: { ...notify.preStart, minutesBefore: n } }))}<span className="text-xs text-fg-dim">min</span></>)}
         {row('At start', notify.start.enabled, (v) => setNotify({ ...notify, start: { enabled: v } }))}
+        {notify.start.enabled && row('Loud alarm at start', notify.alarm !== false, (v) => setNotify({ ...notify, alarm: v }))}
         {row('At end', notify.end.enabled, (v) => setNotify({ ...notify, end: { enabled: v } }))}
         {row('Overdue alert', notify.overdue.enabled, (v) => setNotify({ ...notify, overdue: { ...notify.overdue, enabled: v } }), notify.overdue.enabled && <>{num(notify.overdue.minutesAfterEnd, (n) => setNotify({ ...notify, overdue: { ...notify.overdue, minutesAfterEnd: n } }))}<span className="text-xs text-fg-dim">min after</span></>)}
       </fieldset>

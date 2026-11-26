@@ -56,7 +56,7 @@ export function Welcome() {
     <div className="mx-auto flex min-h-full max-w-md flex-col justify-between px-6 pb-8 pt-14 safe-top">
       <div className="rise text-center">
         <img src="/icon.svg" alt="" className="mx-auto h-20 w-20 drop-shadow-[0_10px_30px_rgba(212,175,55,.4)]" />
-        <p className="mt-6 text-[11px] font-semibold uppercase tracking-[0.4em] text-fg-dim">CYMOR TO-DO</p>
+        <p className="mt-6 text-xs font-semibold uppercase tracking-[0.4em] text-fg-dim">CYMOR TO-DO</p>
         <h1 className="mt-4 text-[2.4rem] font-bold leading-[1.1]">What shall we <span className="gold-text italic">call you?</span></h1>
         <p className="mx-auto mt-4 max-w-xs text-sm leading-relaxed text-fg-dim">That is all we need. No email, no password, no waiting.</p>
       </div>

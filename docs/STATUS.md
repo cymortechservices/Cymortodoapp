@@ -70,3 +70,17 @@ FerretDB crashed (its bug, not the app's) when a second process re-issued `creat
 - Refresh token is stored in `localStorage` (simple and works cross-origin Vercel→Render, but readable by any XSS; the frontend has no CSP configured yet, which would be a sensible hardening step). Access tokens last 15 min; refresh rotation + reuse detection limit the damage of a leaked token.
 - A sleeping free Render web service cannot run the worker; the worker needs an always-on (paid) instance.
 - Overnight activities are supported via an explicit `endDate`; analytics attribute an activity to the local date it starts.
+
+## V1.2 (offline-first, alarm, typography, Settings)
+**Changed**
+- Intro plays on every launch.
+- Works with no internet: the phone keeps its own copy of your data (IndexedDB) and queues changes, then backs up in order when online. Activities, check-in/out, pause, reminders, analytics and notifications are all local. A new guest can start fully offline; the cloud account and recovery code are created later.
+- Loud alarm when an activity starts (per-activity toggle plus a default in Settings): a high-priority alarm channel with its own sound, repeats at 0/1/2 min, plus an in-app full-screen alarm with beeps and vibration. "Test alarm" is in Settings.
+- Typography: Outfit (headings) + Plus Jakarta Sans (body), larger sizes, looser spacing, roomier cards.
+- Settings reorganised into cards, with developer credit: Legendary Smiley Cymor, C.E.O. CYMORTECHSERVICES.
+
+**Tested here**: backend 68/68 (FerretDB), tsc backend+frontend, vitest 17/17, production build, Playwright e2e at 1280px and 390px (alarm screen, offline reload, offline create then sync, no horizontal overflow).
+
+**NOT tested**: the APK has never been compiled or run on a phone here; the real native alarm, local notifications and FCM are untested. Alarm volume follows the phone's notification volume (no native alarm-stream/full-screen-over-lockscreen plugin). iOS not built.
+
+**Known limits**: after updating an old install, open once online to download the local copy. Logging out clears local data (guests need the recovery code). Sharing, devices, delete account, upgrade and recovery-code regeneration need internet. Redeploy the backend (new `alarm` and `clientId` fields) and rebuild the APK with the Actions workflow.

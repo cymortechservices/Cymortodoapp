@@ -74,4 +74,4 @@ export async function ensureIndexes(opts: { skipTtl?: boolean } = {}): Promise<v
     const cm = await missing(CLAIMS, [{ name: 'claims_ttl' }]);
     if (cm.length) await db.collection(CLAIMS).createIndexes([{ key: { at: 1 }, name: 'claims_ttl', expireAfterSeconds: 7 * 24 * 3600 }] as never);
   }
-                         }
+}

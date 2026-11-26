@@ -41,11 +41,11 @@ export default function Dashboard() {
     setBusy(true);
     try {
       const r = await sessionAction(a.id, action, extra);
-      if (r.queued) {
+      if (r.queued && !navigator.onLine) {
         const at = Date.now();
         setData((d) => (d ? { ...d, activities: d.activities.map((x) => (x.id === a.id ? applyLocal(x, action, at) : x)) } : d));
         window.dispatchEvent(new Event('cymor:queued'));
-        toast('Saved offline. It will sync with the real time when you reconnect.', 'info');
+        toast('Saved on this phone. It backs up with the real time when you are online.', 'info');
       } else await reload();
     } catch (e) { toast(errMsg(e), 'err'); } finally { setBusy(false); }
   };
@@ -127,7 +127,7 @@ export default function Dashboard() {
                     <td className="whitespace-nowrap text-right">
                       {a.result.status === 'unresolved'
                         ? <div className="flex justify-end gap-1.5"><button className="btn-ghost btn-sm" onClick={() => act(a, 'check-in')}>Did it</button><button className="btn-ghost btn-sm" onClick={() => act(a, 'miss')}>Missed</button></div>
-                        : <div className="flex flex-col items-end gap-1"><StatusChip status={a.result.status} />{a.result.overrunMinutes > 0 && <span className="text-[11px] text-warn">+{fmtDuration(a.result.overrunMinutes)}</span>}{a.result.timeSavedMinutes > 0 && <span className="text-[11px] text-good">−{fmtDuration(a.result.timeSavedMinutes)}</span>}</div>}
+                        : <div className="flex flex-col items-end gap-1"><StatusChip status={a.result.status} />{a.result.overrunMinutes > 0 && <span className="text-xs text-warn">+{fmtDuration(a.result.overrunMinutes)}</span>}{a.result.timeSavedMinutes > 0 && <span className="text-xs text-good">−{fmtDuration(a.result.timeSavedMinutes)}</span>}</div>}
                     </td>
                   </tr>
                 );

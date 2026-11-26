@@ -19,13 +19,13 @@ export const StatusChip = ({ status }: { status: string }) => {
   return <span className={`chip ${m.tone}`}>{m.label}</span>;
 };
 
-export const Card = ({ children, className = '' }: { children: ReactNode; className?: string }) => <section className={`card p-5 ${className}`}>{children}</section>;
+export const Card = ({ children, className = '' }: { children: ReactNode; className?: string }) => <section className={`card p-6 ${className}`}>{children}</section>;
 
 export const PageTitle = ({ title, sub, right }: { title: string; sub?: string; right?: ReactNode }) => (
-  <header className="mb-6 flex flex-wrap items-end justify-between gap-3 rise">
+  <header className="mb-8 flex flex-wrap items-end justify-between gap-4 rise">
     <div>
       <h1 className="text-3xl font-bold">{title}</h1>
-      {sub && <p className="mt-1 text-sm text-fg-dim">{sub}</p>}
+      {sub && <p className="mt-2 text-sm text-fg-dim">{sub}</p>}
     </div>
     {right}
   </header>

@@ -22,6 +22,8 @@ export interface NotificationJobDraft {
 export interface ActivityNotifyConfig {
   preStart: { enabled: boolean; minutesBefore: number };
   start: { enabled: boolean };
+  /** phone-side loud alarm at the start time (default on) */
+  alarm?: boolean;
   end: { enabled: boolean };
   overdue: { enabled: boolean; minutesAfterEnd: number };
 }
@@ -29,6 +31,7 @@ export interface ActivityNotifyConfig {
 export const DEFAULT_ACTIVITY_NOTIFY: ActivityNotifyConfig = {
   preStart: { enabled: true, minutesBefore: 10 },
   start: { enabled: true },
+  alarm: true,
   end: { enabled: true },
   overdue: { enabled: true, minutesAfterEnd: 15 },
 };

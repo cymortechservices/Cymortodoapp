@@ -9,6 +9,7 @@ import { addDays, dayOfWeek, localDate } from '../core/time.js';
 const notify = z.object({
   preStart: z.object({ enabled: z.boolean(), minutesBefore: z.number().int().min(1).max(1440) }),
   start: z.object({ enabled: z.boolean() }),
+  alarm: z.boolean().optional(),
   end: z.object({ enabled: z.boolean() }),
   overdue: z.object({ enabled: z.boolean(), minutesAfterEnd: z.number().int().min(1).max(1440) }),
 });

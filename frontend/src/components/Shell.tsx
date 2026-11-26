@@ -3,8 +3,11 @@ import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { useOnline } from '../lib/hooks';
 import { flushQueue, pendingCount } from '../lib/offline';
+import { L } from '../lib/localdb';
+import { RecoveryCard } from '../pages/Auth';
 import { playSound } from '../lib/sound';
-import { useToast } from './ui';
+import { Modal, useToast } from './ui';
+import AlarmOverlay from './AlarmOverlay';
 
 const NAV = [
   ['/dashboard', 'Today', 'M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3 2'],
@@ -24,18 +27,21 @@ export default function Shell() {
   const toast = useToast();
   const [queued, setQueued] = useState(0);
 
+  const [pendingCode, setPendingCode] = useState<string | null>(L.get('recoveryToShow'));
+  const [authLost, setAuthLost] = useState(L.get('authLost'));
+  const refreshState = async () => { setQueued(await pendingCount().catch(() => 0)); setPendingCode(L.get('recoveryToShow')); setAuthLost(L.get('authLost')); };
   const sync = async () => {
     const r = await flushQueue().catch(() => null);
-    setQueued(await pendingCount().catch(() => 0));
-    if (r?.sent) toast(`Synced ${r.sent} offline action${r.sent > 1 ? 's' : ''}`, 'ok');
-    r?.conflicts.forEach((c) => toast(`Offline "${c.action.action}" was rejected: ${c.message}`, 'err'));
+    await refreshState();
+    if (r?.sent) toast(`Backed up ${r.sent} change${r.sent > 1 ? 's' : ''}`, 'ok');
+    r?.conflicts.forEach((c) => toast(`A change made offline was not accepted: ${c.message}`, 'err'));
     if (r?.sent || r?.conflicts.length) window.dispatchEvent(new Event('cymor:refresh'));
   };
   useEffect(() => { void sync(); }, [online]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    const h = () => void pendingCount().then(setQueued);
-    window.addEventListener('cymor:queued', h);
-    return () => window.removeEventListener('cymor:queued', h);
+    const h = () => void refreshState();
+    for (const e of ['cymor:queued', 'cymor:synced']) window.addEventListener(e, h);
+    return () => { for (const e of ['cymor:queued', 'cymor:synced']) window.removeEventListener(e, h); };
   }, []);
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
@@ -47,7 +53,7 @@ export default function Shell() {
 
   const link = (to: string, label: string, d: string, mobile = false) => (
     <NavLink key={to} to={to} className={({ isActive }) => mobile
-      ? `relative flex min-w-[58px] flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[10.5px] font-medium tracking-wide transition ${isActive ? 'text-accent' : 'text-fg-dim'}`
+      ? `relative flex min-w-[58px] flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-xs font-medium tracking-wide transition ${isActive ? 'text-accent' : 'text-fg-dim'}`
       : `flex items-center gap-3 rounded-2xl px-3.5 py-2.5 text-sm transition ${isActive ? 'bg-accent/12 text-accent' : 'text-fg-dim hover:bg-ink-800/60 hover:text-fg'}`}>
       {({ isActive }) => (<><Icon d={d} />{label}{mobile && isActive && <span className="absolute -top-1 h-0.5 w-6 rounded-full" style={{ background: 'var(--gold-grad)' }} />}</>)}
     </NavLink>
@@ -60,12 +66,15 @@ export default function Shell() {
         <Link to="/planner?new=1" className="btn-primary mt-4">+ New activity</Link>
         <div className="card mt-auto p-3 text-xs text-fg-dim"><div className="truncate font-medium text-fg">{user?.name}</div><div className="truncate">{user?.timezone}</div></div>
       </aside>
-      <main className="min-w-0 flex-1 px-4 pb-32 pt-[max(env(safe-area-inset-top),1.25rem)] md:px-8 md:pb-10">
-        {!online && <div role="status" className="card mb-4 border-warn/40 px-4 py-2.5 text-sm text-warn">You are offline. Check-ins are saved on this phone with their real time and sync when you reconnect.</div>}
-        {online && queued > 0 && <div role="status" className="card mb-4 flex items-center justify-between px-4 py-2.5 text-sm">{queued} action{queued > 1 ? 's' : ''} waiting to sync <button className="btn-ghost btn-sm" onClick={sync}>Sync now</button></div>}
+      <main className="min-w-0 flex-1 px-5 pb-36 pt-[max(env(safe-area-inset-top),1.75rem)] md:px-10 md:pb-12">
+        {!online && <div role="status" className="card mb-4 px-4 py-3 text-sm leading-relaxed text-fg-dim"><b className="text-fg">Offline mode.</b> Everything still works. Changes are saved on this phone{queued > 0 ? ` (${queued} waiting)` : ''} and back up when you are online.</div>}
+        {online && queued > 0 && <div role="status" className="card mb-4 flex items-center justify-between gap-3 px-4 py-3 text-sm">{queued} change{queued > 1 ? 's' : ''} waiting to back up <button className="btn-ghost btn-sm" onClick={sync}>Back up now</button></div>}
+        {authLost && <div role="alert" className="card mb-4 border-warn/40 px-4 py-3 text-sm leading-relaxed text-warn">Cloud backup is paused because this phone was signed out by the server. Your plans are safe on this phone. In Settings, sign out and restore with your recovery code.</div>}
         {user?.email && !user.emailVerified && <div className="card mb-4 border-warn/30 px-4 py-2.5 text-sm text-fg-dim">Your email is not verified yet. Check your inbox for the verification link.</div>}
         <Outlet />
       </main>
+      <Modal open={!!pendingCode} onClose={() => undefined} title="Save your recovery code">{pendingCode && <RecoveryCard code={pendingCode} onDone={async () => { await L.set('recoveryToShow', null); setPendingCode(null); }} />}</Modal>
+      <AlarmOverlay />
       <nav aria-label="Primary" className="fixed inset-x-3 bottom-[max(env(safe-area-inset-bottom),10px)] z-40 flex items-center justify-between rounded-[1.75rem] border border-accent/25 bg-ink-900/92 px-2 py-1.5 shadow-[0_18px_50px_-12px_rgba(0,0,0,.8)] backdrop-blur-xl md:hidden">
         {link(NAV[0][0], NAV[0][1], NAV[0][2], true)}
         {link(NAV[1][0], NAV[1][1], NAV[1][2], true)}

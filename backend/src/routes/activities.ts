@@ -13,6 +13,7 @@ import { toSession } from '../services/sessions.js';
 const notifySchema = z.object({
   preStart: z.object({ enabled: z.boolean(), minutesBefore: z.number().int().min(1).max(1440) }),
   start: z.object({ enabled: z.boolean() }),
+  alarm: z.boolean().optional(),
   end: z.object({ enabled: z.boolean() }),
   overdue: z.object({ enabled: z.boolean(), minutesAfterEnd: z.number().int().min(1).max(1440) }),
 });
@@ -24,6 +25,7 @@ const base = {
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   location: z.string().max(200).optional(),
   notify: notifySchema.optional(),
+  clientId: z.string().max(64).optional(),
 };
 const when = {
   date: ymdSchema,
@@ -81,6 +83,10 @@ export function activitiesRouter(): Router {
   r.post('/', asyncHandler(async (req, res) => {
     const b = parse(createSchema, req.body);
     const tz = await tzOf(req);
+    if (b.clientId) { // an offline-created activity may be re-sent after a flaky connection: never create it twice
+      const dup = await Activity.findOne({ userId: uid(req), clientId: b.clientId }).lean();
+      if (dup) return void res.status(200).json({ activity: decorate(dup as never, Date.now(), tz), jobsPlanned: 0, conflicts: [] });
+    }
     const { startUtc, endUtc } = resolveTimes(b, tz);
     const { date: _d, start: _s, end: _e, endDate: _ed, ...rest } = b;
     const a = await Activity.create({ ...rest, notify: b.notify ?? (await userDefaultNotify(uid(req))), userId: uid(req), startUtc, endUtc });

@@ -23,7 +23,7 @@ function Protected() {
 }
 
 export default function App() {
-  const [intro, setIntro] = useState(() => !introSeen() && !location.pathname.startsWith('/shared/'));
+  const [intro, setIntro] = useState(() => !introSeen() && !location.pathname.startsWith('/shared/')) // plays on every launch;
   return (
     <>
       {intro && <Intro onDone={() => setIntro(false)} />}

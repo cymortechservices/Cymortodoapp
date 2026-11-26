@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 
-const KEY = 'cymor.intro.v2';
-export const introSeen = () => { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } };
-export const resetIntro = () => { try { localStorage.removeItem(KEY); } catch { /* ignore */ } };
+/** The intro plays on EVERY launch. (Kept for the Settings 'replay' button.) */
+export const introSeen = () => { try { return localStorage.getItem('cymor.nointro') === '1'; } catch { return false; } }; // 'cymor.nointro' exists only for automated tests
+export const resetIntro = () => undefined;
 
 /** Gold dust drifting upward behind the emblem. Pure canvas, DPR-aware, stops on unmount. */
 function GoldDust() {
@@ -33,20 +33,19 @@ function GoldDust() {
   return <canvas ref={ref} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden />;
 }
 
-/** Cinematic first-run intro (~5.4s). Tap / Esc / Enter skips. Shown once per device; skipped for reduced motion. */
+/** Cinematic first-run intro (~5.4s). Tap / Esc / Enter skips. Shown on every launch (tap to skip); skipped for reduced motion. */
 export default function Intro({ onDone }: { onDone: () => void }) {
   const [out, setOut] = useState(false);
   const done = useRef(false);
   const finish = () => {
     if (done.current) return;
     done.current = true;
-    try { localStorage.setItem(KEY, '1'); } catch { /* ignore */ }
     setOut(true);
     setTimeout(onDone, 650);
   };
   useEffect(() => {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) { finish(); return; }
-    const t = setTimeout(finish, 5400);
+    const t = setTimeout(finish, 4800);
     const k = (e: KeyboardEvent) => (e.key === 'Escape' || e.key === 'Enter') && finish();
     addEventListener('keydown', k);
     return () => { clearTimeout(t); removeEventListener('keydown', k); };
@@ -110,7 +109,7 @@ export default function Intro({ onDone }: { onDone: () => void }) {
       <div className="relative mt-4 h-px w-40 origin-center" style={{ background: 'linear-gradient(90deg, transparent, #D4AF37, transparent)', animation: 'ruleIn 1s ease 2.6s both' }} />
       <p className="relative mt-4 text-[15px] font-semibold tracking-[0.55em] text-[#F5D76E]" style={{ marginRight: '-0.55em', animation: 'fadeUp .9s ease 2.8s both' }}>TO-DO</p>
       <p className="relative mt-7 px-8 text-center font-display text-lg italic text-[#e9dfc2]" style={{ animation: 'fadeUp 1s ease 3.4s both' }}>Own your time. Master your day.</p>
-      <p className="absolute bottom-[max(2.2rem,env(safe-area-inset-bottom))] text-[11px] uppercase tracking-[0.3em] text-[#a69d88]" style={{ animation: 'fadeUp .8s ease 2s both, breathe 2.4s ease-in-out 3s infinite' }}>Tap to begin</p>
+      <p className="absolute bottom-[max(2.2rem,env(safe-area-inset-bottom))] text-xs uppercase tracking-[0.3em] text-[#a69d88]" style={{ animation: 'fadeUp .8s ease 2s both, breathe 2.4s ease-in-out 3s infinite' }}>Tap to begin</p>
     </div>
   );
 }

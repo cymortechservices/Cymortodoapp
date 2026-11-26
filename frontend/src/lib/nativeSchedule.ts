@@ -1,5 +1,5 @@
 /** Pure planning logic for phone-side (local) notifications. No Capacitor imports so it is unit-testable. */
-export interface UpcomingJob { id: string; kind: string; sourceId?: string; fireAt: number; title: string; body: string; url?: string }
+export interface UpcomingJob { id: string; kind: string; sourceId?: string; fireAt: number; title: string; body: string; url?: string; /** start job that should ring as a loud alarm */ alarm?: boolean }
 
 /** Stable positive 31-bit integer id (Android notification ids are ints). FNV-1a. */
 export function notifId(jobId: string): number {
@@ -30,4 +30,9 @@ export const ACTIONS_BY_KIND: Record<string, { id: string; title: string }[]> = 
   end: [{ id: 'check-out', title: 'Check out' }, { id: 'snooze', title: 'Snooze 5 min' }],
   overdue: [{ id: 'check-out', title: 'Check out' }],
   reminder: [{ id: 'snooze', title: 'Snooze 10 min' }],
+  alarm: [{ id: 'check-in', title: 'I am starting' }, { id: 'snooze', title: 'Snooze 5 min' }],
 };
+
+/** A loud alarm rings at the start time and again 1 and 2 minutes later until the user checks in (check-in cancels the repeats). */
+export const ALARM_REPEAT_MIN = [0, 1, 2];
+export const alarmId = (jobId: string, n: number) => notifId(`${jobId}#alarm${n}`);

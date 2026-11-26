@@ -6,10 +6,11 @@
 import { Capacitor } from '@capacitor/core';
 import { api, tokens } from './api';
 import { sessionAction } from './offline';
-import { ACTIONS_BY_KIND, notifId, planLocal, type UpcomingJob } from './nativeSchedule';
+import { ACTIONS_BY_KIND, ALARM_REPEAT_MIN, alarmId, notifId, planLocal, type UpcomingJob } from './nativeSchedule';
 
 export const isNative = () => Capacitor.isNativePlatform();
 const CHANNEL = 'reminders';
+const ALARM_CHANNEL = 'alarm_v1'; // channel settings can't be changed after creation, so bump the id if the sound ever changes
 const K_TOKEN = 'cymor.fcm', K_UNTIL = 'cymor.localUntil';
 const store = {
   get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
@@ -29,6 +30,7 @@ export async function initNative(): Promise<void> {
   StatusBar.setBackgroundColor({ color: '#0a0907' }).catch(() => undefined);
 
   await LocalNotifications.createChannel({ id: CHANNEL, name: 'Reminders', description: 'Activity reminders and alerts', importance: 5, visibility: 1, vibration: true, lights: true, lightColor: '#D4AF37' }).catch(() => undefined);
+  await LocalNotifications.createChannel({ id: ALARM_CHANNEL, name: 'Activity alarm', description: 'Loud alarm when an activity starts', importance: 5, visibility: 1, sound: 'cymor_alarm.wav', vibration: true, lights: true, lightColor: '#D4AF37' }).catch(() => undefined);
   await LocalNotifications.registerActionTypes({
     types: Object.entries(ACTIONS_BY_KIND).map(([id, actions]) => ({ id, actions: actions.map((a) => ({ id: a.id, title: a.title, foreground: false })) })),
   }).catch(() => undefined);
@@ -38,9 +40,12 @@ export async function initNative(): Promise<void> {
     try {
       if (e.actionId === 'snooze') {
         const mins = x.kind === 'reminder' ? 10 : 5;
-        await LocalNotifications.schedule({ notifications: [{ id: notifId(`snooze-${x.jobId}-${Date.now()}`), title: e.notification.title ?? 'CYMOR TO-DO', body: e.notification.body ?? '', schedule: { at: new Date(Date.now() + mins * 60_000), allowWhileIdle: true }, channelId: CHANNEL, smallIcon: 'ic_stat_cymor', actionTypeId: x.kind, extra: x }] });
+        const isAlarm = x.kind === 'alarm';
+        if (isAlarm && x.jobId) await LocalNotifications.cancel({ notifications: ALARM_REPEAT_MIN.map((n) => ({ id: alarmId(x.jobId!, n) })) }).catch(() => undefined);
+        await LocalNotifications.schedule({ notifications: [{ id: notifId(`snooze-${x.jobId}-${Date.now()}`), title: e.notification.title ?? 'CYMOR TO-DO', body: e.notification.body ?? '', schedule: { at: new Date(Date.now() + mins * 60_000), allowWhileIdle: true }, channelId: isAlarm ? ALARM_CHANNEL : CHANNEL, sound: isAlarm ? 'cymor_alarm.wav' : undefined, smallIcon: 'ic_stat_cymor', actionTypeId: x.kind, extra: x }] });
       } else if ((e.actionId === 'check-in' || e.actionId === 'check-out') && x.sourceId) {
-        await sessionAction(x.sourceId, e.actionId); // offline-aware: queues with the real time if there is no network
+        await sessionAction(x.sourceId, e.actionId); // works offline: saved on the phone with the real time
+        if (x.kind === 'alarm' && x.jobId) await LocalNotifications.cancel({ notifications: ALARM_REPEAT_MIN.map((n) => ({ id: alarmId(x.jobId!, n) })) }).catch(() => undefined);
         window.dispatchEvent(new Event('cymor:refresh'));
       } else if (e.actionId === 'tap') window.dispatchEvent(new Event('cymor:refresh'));
     } catch { /* never crash the notification handler */ }
@@ -78,10 +83,16 @@ async function doSync() {
   const pend = await LocalNotifications.getPending();
   if (pend.notifications.length) await LocalNotifications.cancel({ notifications: pend.notifications.map((n) => ({ id: n.id })) });
   if (plan.items.length) {
-    await LocalNotifications.schedule({ notifications: plan.items.map((j) => ({
-      id: notifId(j.id), title: j.title, body: j.body, channelId: CHANNEL, smallIcon: 'ic_stat_cymor', actionTypeId: j.kind in ACTIONS_BY_KIND ? j.kind : undefined,
-      schedule: { at: new Date(j.fireAt), allowWhileIdle: true }, extra: { jobId: j.id, kind: j.kind, sourceId: j.sourceId, url: j.url },
-    })) });
+    const notifications = plan.items.flatMap((j) => {
+      const at = (ms: number) => ({ at: new Date(ms), allowWhileIdle: true });
+      const extra = { jobId: j.id, kind: j.kind, sourceId: j.sourceId, url: j.url };
+      if (j.alarm) {
+        // Loud alarm: rings at the start time and repeats twice until the user checks in.
+        return ALARM_REPEAT_MIN.map((m) => ({ id: alarmId(j.id, m), title: m === 0 ? 'TIME TO START' : 'YOU HAVE NOT STARTED YET', body: j.body, channelId: ALARM_CHANNEL, sound: 'cymor_alarm.wav', smallIcon: 'ic_stat_cymor', actionTypeId: 'alarm', autoCancel: false, schedule: at(j.fireAt + m * 60_000), extra: { ...extra, kind: 'alarm' } }));
+      }
+      return [{ id: notifId(j.id), title: j.title, body: j.body, channelId: CHANNEL, smallIcon: 'ic_stat_cymor', actionTypeId: j.kind in ACTIONS_BY_KIND ? j.kind : undefined, schedule: at(j.fireAt), extra }];
+    });
+    await LocalNotifications.schedule({ notifications });
   }
   store.set(K_UNTIL, String(plan.localUntil)); store.set('cymor.syncErr', null);
   const t = store.get(K_TOKEN);
@@ -125,4 +136,12 @@ export async function nativeLogout(): Promise<void> {
   if (t && tokens.get()) await api('/notifications/native', { method: 'DELETE', body: { token: t } }).catch(() => undefined);
   try { const { LocalNotifications } = await import('@capacitor/local-notifications'); const p = await LocalNotifications.getPending(); if (p.notifications.length) await LocalNotifications.cancel({ notifications: p.notifications }); } catch { /* */ }
   store.set(K_UNTIL, null);
+}
+
+/** "Test the alarm": rings the real alarm channel in 5 seconds so the user can check volume and that the phone allows it. */
+export async function testAlarm(): Promise<void> {
+  if (!isNative()) return;
+  const { LocalNotifications } = await import('@capacitor/local-notifications');
+  await initNative();
+  await LocalNotifications.schedule({ notifications: [{ id: notifId(`test-alarm-${Date.now()}`), title: 'TIME TO START', body: 'This is how your activity alarm will sound.', channelId: ALARM_CHANNEL, sound: 'cymor_alarm.wav', smallIcon: 'ic_stat_cymor', autoCancel: false, schedule: { at: new Date(Date.now() + 5000), allowWhileIdle: true } }] });
 }

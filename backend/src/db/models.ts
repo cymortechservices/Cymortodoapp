@@ -7,6 +7,7 @@ const notifyCfg = new Schema(
   {
     preStart: { enabled: { type: Boolean, default: true }, minutesBefore: { type: Number, default: 10 } },
     start: { enabled: { type: Boolean, default: true } },
+    alarm: { type: Boolean, default: true }, // phone rings a loud alarm at the start time
     end: { enabled: { type: Boolean, default: true } },
     overdue: { enabled: { type: Boolean, default: true }, minutesAfterEnd: { type: Number, default: 15 } },
   },
@@ -58,19 +59,21 @@ export const activitySchema = new Schema(
     title: { type: String, required: true, trim: true, maxlength: 200 },
     description: { type: String, default: '' },
     category: { type: String, default: 'general', trim: true },
-    color: { type: String, default: '#7c5cff' },
+    color: { type: String, default: '#D4AF37' },
     location: { type: String, default: '' },
     startUtc: { type: Number, required: true },
     endUtc: { type: Number, required: true },
     cancelled: { type: Boolean, default: false },
     notify: { type: notifyCfg, default: () => ({}) },
     seriesId: String,
+    clientId: String, // id generated on the phone; makes offline-created activities idempotent when synced
     ...sessionFields,
     createdAt: { type: Date, default: Date.now },
   },
   opts,
 );
 activitySchema.index({ userId: 1, startUtc: 1 });
+activitySchema.index({ userId: 1, clientId: 1 }, { sparse: true });
 
 export const reminderSchema = new Schema(
   {

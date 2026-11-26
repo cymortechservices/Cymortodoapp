@@ -30,14 +30,14 @@ export default function Shared() {
     <div className="mx-auto max-w-2xl px-4 pb-16 pt-[max(env(safe-area-inset-top),1.5rem)]">
       <header className="card-gold rise mb-6 overflow-hidden p-6 text-center">
         <img src="/icon.svg" alt="" className="mx-auto h-12 w-12" />
-        <p className="mt-3 text-[10.5px] font-semibold uppercase tracking-[0.35em] text-fg-dim">CYMOR TO-DO</p>
+        <p className="mt-3 text-xs font-semibold uppercase tracking-[0.35em] text-fg-dim">CYMOR TO-DO</p>
         <h1 className="mt-2 text-[1.75rem] font-bold leading-tight">{data.title}</h1>
         <p className="mt-1 text-sm text-fg-dim">Shared by <b className="text-fg">{data.owner}</b></p>
         <div className="hairline my-4" />
         <div className="flex justify-center gap-6 text-center">
-          <div><div className="gold-text font-display text-2xl font-bold">{data.activities.length}</div><div className="text-[11px] uppercase tracking-wider text-fg-dim">Activities</div></div>
-          <div><div className="gold-text font-display text-2xl font-bold">{days.length}</div><div className="text-[11px] uppercase tracking-wider text-fg-dim">Days</div></div>
-          <div><div className="gold-text font-display text-2xl font-bold">{fmtDuration(total)}</div><div className="text-[11px] uppercase tracking-wider text-fg-dim">Planned</div></div>
+          <div><div className="gold-text font-display text-2xl font-bold">{data.activities.length}</div><div className="text-xs uppercase tracking-wider text-fg-dim">Activities</div></div>
+          <div><div className="gold-text font-display text-2xl font-bold">{days.length}</div><div className="text-xs uppercase tracking-wider text-fg-dim">Days</div></div>
+          <div><div className="gold-text font-display text-2xl font-bold">{fmtDuration(total)}</div><div className="text-xs uppercase tracking-wider text-fg-dim">Planned</div></div>
         </div>
         <p className="mt-3 text-xs text-fg-dim">Times shown in {tz}</p>
       </header>

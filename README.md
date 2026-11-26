@@ -41,3 +41,5 @@ Push delivery is never guaranteed by any provider; iOS needs a Home-Screen insta
 
 ## V1.1: Android app & username-only start
 See `docs/ANDROID.md` (build/test the app) and `docs/STATUS.md` (what is and is not tested).
+
+> V1.2: offline-first (works with no internet), start-of-activity alarm, new typography, card-based Settings. See docs/STATUS.md.

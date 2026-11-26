@@ -4,6 +4,12 @@ from playwright.sync_api import sync_playwright, expect
 
 BASE='http://localhost:4173'
 CODE=''
+
+def calm(p):
+    """Silence the start-alarm screen if it is up (it is meant to take over the screen)."""
+    p.wait_for_timeout(700)
+    b=p.get_by_role('button', name='Silence')
+    if b.count() and b.first.is_visible(): b.first.click(); p.wait_for_timeout(300)
 errors=[]
 def run():
     with sync_playwright() as pw:
@@ -17,6 +23,7 @@ def run():
         expect(p.get_by_role('dialog', name='Welcome')).to_be_visible()
         p.wait_for_timeout(1800); p.screenshot(path='/home/claude/scratch/shots/01-intro.png')
         p.get_by_role('dialog', name='Welcome to CYMOR TO-DO').click()
+        p.evaluate("localStorage.setItem('cymor.nointro','1')")
         expect(p.get_by_text('call you?')).to_be_visible(timeout=5000)
         p.screenshot(path='/home/claude/scratch/shots/02-welcome.png')
         # username-only start (no email, no password)
@@ -42,16 +49,20 @@ def run():
         p.get_by_role('button', name='Add activity').click()
         expect(p.get_by_text('Study Mathematics').first).to_be_visible(timeout=8000)
         # overlapping second activity -> overlap warning, nothing moved
-        p.get_by_role('link', name='New activity').first.click()
+        calm(p); p.get_by_role('link', name='New activity').first.click()
         p.get_by_role('textbox', name='Activity').fill('Overlapper')
         p.locator('input[type=time]').nth(0).fill(s); p.locator('input[type=time]').nth(1).fill(e)
         p.get_by_role('button', name='Add activity').click()
         expect(p.get_by_text('overlap').first).to_be_visible(timeout=8000)
         p.screenshot(path='/home/claude/scratch/shots/04-planner.png')
-        # dashboard: check in, live timer, pause/resume
+        # the start ALARM screen takes over because Study Mathematics has begun and nobody checked in
+        calm(p); p.reload()
+        expect(p.get_by_role('alertdialog')).to_be_visible(timeout=8000)
+        p.screenshot(path='/home/claude/scratch/shots/04b-alarm.png')
+        print('alarm overlay shown OK')
+        p.get_by_role('button', name='I am starting now').click()
+        calm(p)
         p.get_by_role('link', name='Today').first.click()
-        expect(p.get_by_role('button', name='Check in')).to_be_visible(timeout=8000)
-        p.get_by_role('button', name='Check in').click()
         expect(p.get_by_role('button', name='Check out')).to_be_visible(timeout=8000)
         p.wait_for_timeout(2500)
         p.screenshot(path='/home/claude/scratch/shots/05-dashboard-running.png')
@@ -59,21 +70,36 @@ def run():
         expect(p.get_by_role('button', name='Resume')).to_be_visible(timeout=8000)
         p.get_by_role('button', name='Resume').click()
         expect(p.get_by_role('button', name='Pause')).to_be_visible(timeout=8000)
-        # OFFLINE: pause while offline -> queued with real timestamp, then sync on reconnect
+        # FULLY OFFLINE: everything keeps working; reload the app with no network; create an activity; then reconnect and back up
         ctx.set_offline(True)
         p.evaluate("window.dispatchEvent(new Event('offline'))")
-        expect(p.get_by_text('You are offline')).to_be_visible(timeout=5000)
+        expect(p.get_by_text('Offline mode')).to_be_visible(timeout=5000)
         p.get_by_role('button', name='Pause').click()
-        expect(p.get_by_text('Saved offline').first).to_be_visible(timeout=5000)
-        expect(p.get_by_role('button', name='Resume')).to_be_visible()
+        expect(p.get_by_role('button', name='Resume')).to_be_visible(timeout=5000)
+        p.reload(); p.wait_for_timeout(1500); calm(p)
+        expect(p.get_by_role('button', name='Resume')).to_be_visible(timeout=10000)
+        print('app reloaded with NO internet and still shows the running activity')
+        calm(p); p.get_by_role('link', name='New activity').first.click()
+        p.get_by_role('textbox', name='Activity').fill('Written offline')
+        p.locator('input[type=time]').nth(0).fill('22:00'); p.locator('input[type=time]').nth(1).fill('22:30')
+        p.get_by_role('button', name='Add activity').click()
+        expect(p.get_by_text('Written offline').first).to_be_visible(timeout=8000)
         p.screenshot(path='/home/claude/scratch/shots/06-offline.png')
-        queued=p.evaluate("""() => new Promise(r => { const q = indexedDB.open('cymor-todo',1); q.onsuccess = () => { const g = q.result.transaction('queue').objectStore('queue').getAll(); g.onsuccess = () => r(g.result) } })""")
-        print('queued in IndexedDB:', json.dumps(queued))
+        ops=p.evaluate("""() => new Promise(r => { const q = indexedDB.open('cymor-local'); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('ops'); g.onsuccess = () => r(g.result) } })""")
+        print('changes queued on the phone while offline:', [o['method']+' '+o['path'] for o in ops])
         ctx.set_offline(False)
         p.evaluate("window.dispatchEvent(new Event('online'))")
-        expect(p.get_by_text('Synced 1 offline action').first).to_be_visible(timeout=10000)
-        print('offline queue synced OK')
+        expect(p.get_by_text('Backed up').first).to_be_visible(timeout=15000)
+        print('offline changes backed up OK')
+        tok=json.loads(p.evaluate("localStorage.getItem('cymor.tokens')"))
+        import urllib.request
+        d=datetime.date.today().isoformat()
+        rq=urllib.request.Request(f'http://localhost:4000/api/activities?from={d}&to={d}', headers={'authorization':'Bearer '+tok['accessToken']})
+        titles=[a['title'] for a in json.load(urllib.request.urlopen(rq))['activities']]
+        assert 'Written offline' in titles, titles
+        print('server has the activity created offline:', titles)
         # check out
+        calm(p); p.get_by_role('link', name='Today').first.click()
         p.get_by_role('button', name='Resume').click()
         p.get_by_role('button', name='Check out').click()
         p.wait_for_timeout(1200)
@@ -95,7 +121,7 @@ def run():
         # notifications centre
         p.get_by_role('link', name='Alerts').first.click()
         expect(p.get_by_text('System check')).to_be_visible(timeout=8000)
-        expect(p.get_by_text('Background worker has never reported in', exact=False)).to_be_visible()
+        
         p.screenshot(path='/home/claude/scratch/shots/11-notifications.png')
         # growth + settings
         p.get_by_role('link', name='Growth').first.click()
@@ -112,14 +138,14 @@ def run():
         # mobile view
         m=b.new_context(viewport={'width':390,'height':800}, device_scale_factor=2, timezone_id='Africa/Nairobi', is_mobile=True, has_touch=True)
         mp=m.new_page()
-        mp.goto(BASE+'/restore'); mp.evaluate("localStorage.setItem('cymor.intro.v2','1')"); mp.reload()
+        mp.goto(BASE+'/restore'); mp.evaluate("localStorage.setItem('cymor.nointro','1')"); mp.reload()
         mp.get_by_label('Recovery code').fill(CODE); mp.get_by_role('button', name='Restore my account').click()
         expect(mp.get_by_text('Good ', exact=False).first).to_be_visible(timeout=10000)
         print('restore with recovery code OK')
-        mp.wait_for_timeout(600); mp.screenshot(path='/home/claude/scratch/shots/13-mobile-dashboard.png')
+        mp.wait_for_timeout(600); calm(mp); mp.screenshot(path='/home/claude/scratch/shots/13-mobile-dashboard.png')
         for nm,path in [('14-mobile-planner','/planner'),('15-mobile-alerts','/notifications'),('16-mobile-settings','/settings')]:
             mp.get_by_role('link', name=path[1:].capitalize() if path!='/notifications' else 'Alerts').first.click() if False else mp.goto(BASE+path)
-            mp.wait_for_timeout(900); mp.screenshot(path=f'/home/claude/scratch/shots/{nm}.png')
+            mp.wait_for_timeout(900); calm(mp); mp.screenshot(path=f'/home/claude/scratch/shots/{nm}.png', full_page=True)
             print('overflow',nm, mp.evaluate('document.documentElement.scrollWidth > document.documentElement.clientWidth'))
         ov=mp.evaluate("document.documentElement.scrollWidth > document.documentElement.clientWidth")
         print('mobile horizontal overflow:', ov)

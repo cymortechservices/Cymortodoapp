@@ -5,9 +5,8 @@ import App from './App';
 import { isNative } from './lib/native';
 import { AuthProvider } from './lib/auth';
 import { ToastProvider } from './components/ui';
-import '@fontsource-variable/inter';
-import '@fontsource/playfair-display/500.css';
-import '@fontsource/playfair-display/700.css';
+import '@fontsource-variable/plus-jakarta-sans';
+import '@fontsource-variable/outfit';
 import './index.css';
 
 if ('serviceWorker' in navigator && import.meta.env.PROD && !isNative()) {

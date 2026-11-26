@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { notifId, planLocal, type UpcomingJob } from './nativeSchedule';
+import { alarmId, notifId, planLocal, type UpcomingJob } from './nativeSchedule';
 
 const job = (n: number, at: number): UpcomingJob => ({ id: `job-${n}`, kind: 'start', fireAt: at, title: 't', body: 'b' });
 
@@ -30,3 +30,5 @@ describe('planLocal', () => {
   });
   it('handles an empty list', () => { expect(planLocal([], now, now + 5)).toEqual({ items: [], localUntil: now + 5 }); });
 });
+
+describe('alarm ids', () => { it('are distinct per repeat and per job', () => { const ids = new Set([0, 1, 2].map((n) => alarmId('j1', n)).concat([0, 1, 2].map((n) => alarmId('j2', n)))); expect(ids.size).toBe(6); }); });

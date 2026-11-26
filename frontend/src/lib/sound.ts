@@ -22,3 +22,27 @@ export function playSound(name = 'chime', enabled = true) {
     }
   } catch { /* autoplay blocked or unsupported */ }
 }
+
+/** Loud repeating alarm for the in-app "activity is starting" screen. Call stopAlarm() to silence it. */
+let alarmTimer: ReturnType<typeof setInterval> | undefined;
+export function startAlarm() {
+  stopAlarm();
+  const beep = () => {
+    try {
+      ctx ??= new AudioContext();
+      if (ctx.state === 'suspended') void ctx.resume();
+      let t = ctx.currentTime;
+      for (let k = 0; k < 3; k++) for (const f of [1568, 2093]) {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'square'; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+        o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + 0.18);
+        t += 0.23;
+      }
+    } catch { /* autoplay blocked */ }
+    try { navigator.vibrate?.([300, 150, 300, 150, 600]); } catch { /* unsupported */ }
+  };
+  beep();
+  alarmTimer = setInterval(beep, 2400);
+}
+export function stopAlarm() { if (alarmTimer) clearInterval(alarmTimer); alarmTimer = undefined; try { navigator.vibrate?.(0); } catch { /* unsupported */ } }
