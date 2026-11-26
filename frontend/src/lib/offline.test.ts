@@ -62,9 +62,13 @@ describe('local-first (no internet at all)', () => {
   it('plans phone alarms for the future start time, skips cancelled and started activities', async () => {
     const soon = Date.now() + 3_600_000;
     const d = new Date(soon + 3 * 3_600_000);
-    const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Nairobi' }).format(d);
-    const hm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Nairobi', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
-    const a = await create('Meeting', date, hm, hm.replace(/^\d\d/, (h) => String((Number(h) + 1) % 24).padStart(2, '0')));
+    const fmt = (t: number) => ({
+      date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Nairobi' }).format(t),
+      hm: new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Nairobi', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(t),
+    });
+    // built from real instants so it also works when the hour is 23:xx (the end then falls on the next day)
+    const s0 = fmt(d.getTime()), e0 = fmt(d.getTime() + 3_600_000);
+    const a = await api<{ activity: { id: string } }>('/activities', { method: 'POST', body: { title: 'Meeting', date: s0.date, start: s0.hm, end: e0.hm, endDate: e0.date } });
     const kinds = () => upcomingJobs(Date.now()).jobs.filter((j) => j.sourceId === a.activity.id).map((j) => j.kind);
     expect(kinds()).toEqual(expect.arrayContaining(['pre_start', 'start', 'end', 'overdue']));
     expect(upcomingJobs(Date.now()).jobs.find((j) => j.kind === 'start')!.alarm).toBe(true);
